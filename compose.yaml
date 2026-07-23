@@ -1,0 +1,19 @@
+services:
+  ns3:
+    build:
+      context: .
+      args:
+        NS3_UID: "${NS3_UID:-1000}"
+        NS3_GID: "${NS3_GID:-1000}"
+    image: ns3-47-dev:local
+    init: true
+    stdin_open: true
+    tty: true
+    working_dir: /workspace/ns-3
+    command: ["sleep", "infinity"]
+    volumes:
+      - .:/workspace/ns-3
+      - ns3-ccache:/home/ns3/.cache/ccache
+
+volumes:
+  ns3-ccache:
