@@ -9,6 +9,8 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 
+#include <string>
+
 namespace ns3
 {
 
@@ -22,29 +24,31 @@ class SimulationDebugHelper
   public:
     /**
      * Connect readable SEND, FORWARD, and DELIVER callbacks to every IPv4 node.
+     *
+     * Nodes without an IPv4 stack are skipped, so this can be enabled in
+     * heterogeneous simulations.
      */
     static void EnableIpv4PacketFlowTracing();
 
     /**
-     * Print the point-to-point plus CSMA topology used by second.cc.
+     * Connect readable SEND, FORWARD, and DELIVER callbacks to every IPv6 node.
      *
-     * @param p2pNodes The two nodes connected by the point-to-point link.
-     * @param csmaNodes The gateway followed by all extra CSMA nodes.
-     * @param p2pDevices Devices installed on the point-to-point link.
-     * @param csmaDevices Devices installed on the shared CSMA LAN.
-     * @param p2pInterfaces IPv4 interfaces in the point-to-point subnet.
-     * @param csmaInterfaces IPv4 interfaces in the CSMA subnet.
-     * @param nCsma Number of extra CSMA nodes.
-     * @param serverCsmaIndex Index of the server inside csmaNodes.
+     * Nodes without an IPv6 stack are skipped.
      */
-    static void PrintPointToPointCsmaTopology(const NodeContainer& p2pNodes,
-                                              const NodeContainer& csmaNodes,
-                                              const NetDeviceContainer& p2pDevices,
-                                              const NetDeviceContainer& csmaDevices,
-                                              const Ipv4InterfaceContainer& p2pInterfaces,
-                                              const Ipv4InterfaceContainer& csmaInterfaces,
-                                              uint32_t nCsma,
-                                              uint32_t serverCsmaIndex);
+    static void EnableIpv6PacketFlowTracing();
+
+    /**
+     * Discover and print the complete topology currently registered in NodeList.
+     *
+     * The report includes every node, application, device model, device address,
+     * interface index, MTU, link state, channel model, and IPv4/IPv6 address.
+     * It also groups devices by channel to show network links and shared media.
+     *
+     * @param title Optional heading used to identify the simulation.
+     * @param printAttributes Print all readable TypeId attributes when true.
+     */
+    static void PrintTopology(const std::string& title = "ns-3 Discovered Topology",
+                              bool printAttributes = true);
 
     /**
      * Print every node's IPv4 routing table at a scheduled simulation time.
@@ -53,19 +57,6 @@ class SimulationDebugHelper
      */
     static void PrintIpv4RoutingTablesAt(Time printTime);
 
-    /**
-     * Print the final result of the tutorial UDP Echo exchange.
-     *
-     * @param finishTime Simulated time at which execution finished.
-     * @param serverNodeId Node ID of the UDP Echo server.
-     * @param printRoutes Whether routing-table output was enabled.
-     * @param tracePackets Whether IPv4 packet-flow output was enabled.
-     */
-    static void PrintUdpEchoSummary(Time finishTime,
-                                    uint32_t serverNodeId,
-                                    bool printRoutes,
-                                    bool tracePackets);
-
   private:
     /**
      * Convert an IPv4 Protocol field into a readable name.
@@ -73,11 +64,25 @@ class SimulationDebugHelper
     static std::string GetProtocolName(uint8_t protocol);
 
     /**
+     * Print every readable TypeId attribute inherited by an object.
+     */
+    static void PrintObjectAttributes(Ptr<const Object> object, const std::string& indent);
+
+    /**
      * Format one event received from an Ipv4L3Protocol trace source.
      */
     static void Ipv4PacketFlowTrace(std::string action,
                                     uint32_t nodeId,
                                     const Ipv4Header& header,
+                                    Ptr<const Packet> packet,
+                                    uint32_t interface);
+
+    /**
+     * Format one event received from an Ipv6L3Protocol trace source.
+     */
+    static void Ipv6PacketFlowTrace(std::string action,
+                                    uint32_t nodeId,
+                                    const Ipv6Header& header,
                                     Ptr<const Packet> packet,
                                     uint32_t interface);
 };

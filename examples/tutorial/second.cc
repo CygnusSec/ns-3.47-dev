@@ -145,14 +145,16 @@ main(int argc, char* argv[])
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
     // Print a readable description after every device and address is known.
-    SimulationDebugHelper::PrintPointToPointCsmaTopology(p2pNodes,
-                                                         csmaNodes,
-                                                         p2pDevices,
-                                                         csmaDevices,
-                                                         p2pInterfaces,
-                                                         csmaInterfaces,
-                                                         nCsma,
-                                                         serverCsmaIndex);
+    // Discover all nodes, devices, channels, applications, and IP addresses.
+    SimulationDebugHelper::PrintTopology("ns-3 Second Tutorial Topology");
+
+    // Print configuration that belongs specifically to this UDP Echo example.
+    std::cout << "\nApplication flow\n"
+              << "  Protocol     : UDP Echo\n"
+              << "  Source       : n0/" << p2pInterfaces.GetAddress(0) << "\n"
+              << "  Destination  : n" << serverNode << "/"
+              << csmaInterfaces.GetAddress(serverCsmaIndex) << ":9\n"
+              << "  Expected path: n0 -> n1 -> n" << serverNode << " -> n1 -> n0\n";
 
     // Schedule a detailed routing-table dump before application traffic begins.
     if (printRoutes)
@@ -175,10 +177,17 @@ main(int argc, char* argv[])
     Simulator::Run();
 
     // Simulator::Now() is 10 seconds because application stop events remain in the queue.
-    SimulationDebugHelper::PrintUdpEchoSummary(Simulator::Now(),
-                                               csmaNodes.Get(serverCsmaIndex)->GetId(),
-                                               printRoutes,
-                                               tracePackets);
+    std::cout << "\n================ Simulation Summary =================\n"
+              << "Finished at       : " << Simulator::Now().GetSeconds() << " s\n"
+              << "UDP Echo exchange : completed\n"
+              << "Request path      : n0 SEND -> n1 FORWARD -> n" << serverNode
+              << " DELIVER\n"
+              << "Reply path        : n" << serverNode
+              << " SEND -> n1 FORWARD -> n0 DELIVER\n"
+              << "Routing tables    : " << (printRoutes ? "printed" : "disabled") << "\n"
+              << "IPv4 packet trace : " << (tracePackets ? "printed above" : "disabled") << "\n"
+              << "PCAP traces       : written with prefix second\n"
+              << "=====================================================\n";
 
     Simulator::Destroy();
     return 0;

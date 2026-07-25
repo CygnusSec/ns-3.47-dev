@@ -5,9 +5,15 @@
 #include "simulation-debug-helper.h"
 
 #include "ns3/ipv4-l3-protocol.h"
+#include "ns3/ipv4-list-routing.h"
 #include "ns3/ipv4-routing-helper.h"
+#include "ns3/ipv6.h"
+#include "ns3/ipv6-l3-protocol.h"
+#include "ns3/ipv6-list-routing.h"
 
 #include <iostream>
+#include <map>
+#include <set>
 
 namespace ns3
 {
@@ -23,8 +29,45 @@ SimulationDebugHelper::GetProtocolName(uint8_t protocol)
         return "TCP";
     case 17:
         return "UDP";
+    case 58:
+        return "ICMPv6";
     default:
         return "IP-" + std::to_string(protocol);
+    }
+}
+
+void
+SimulationDebugHelper::PrintObjectAttributes(Ptr<const Object> object,
+                                             const std::string& indent)
+{
+    std::set<std::string> printedAttributes;
+    TypeId typeId = object->GetInstanceTypeId();
+
+    while (true)
+    {
+        for (std::size_t index = 0; index < typeId.GetAttributeN(); ++index)
+        {
+            const TypeId::AttributeInformation information = typeId.GetAttribute(index);
+            if (!(information.flags & TypeId::ATTR_GET) ||
+                information.supportLevel != TypeId::SupportLevel::SUPPORTED ||
+                !printedAttributes.insert(information.name).second)
+            {
+                continue;
+            }
+
+            Ptr<AttributeValue> value = information.checker->Create();
+            if (object->GetAttributeFailSafe(information.name, *value))
+            {
+                std::cout << indent << information.name << "="
+                          << value->SerializeToString(information.checker) << "\n";
+            }
+        }
+
+        if (!typeId.HasParent())
+        {
+            break;
+        }
+        typeId = typeId.GetParent();
     }
 }
 
@@ -60,7 +103,10 @@ SimulationDebugHelper::EnableIpv4PacketFlowTracing()
     for (auto node = NodeList::Begin(); node != NodeList::End(); ++node)
     {
         Ptr<Ipv4L3Protocol> ipv4 = (*node)->GetObject<Ipv4L3Protocol>();
-        NS_ABORT_MSG_IF(!ipv4, "Every traced node must have an Ipv4L3Protocol");
+        if (!ipv4)
+        {
+            continue;
+        }
 
         const uint32_t nodeId = (*node)->GetId();
         ipv4->TraceConnectWithoutContext(
@@ -82,64 +128,225 @@ SimulationDebugHelper::EnableIpv4PacketFlowTracing()
 }
 
 void
-SimulationDebugHelper::PrintPointToPointCsmaTopology(
-    const NodeContainer& p2pNodes,
-    const NodeContainer& csmaNodes,
-    const NetDeviceContainer& p2pDevices,
-    const NetDeviceContainer& csmaDevices,
-    const Ipv4InterfaceContainer& p2pInterfaces,
-    const Ipv4InterfaceContainer& csmaInterfaces,
-    uint32_t nCsma,
-    uint32_t serverCsmaIndex)
+SimulationDebugHelper::Ipv6PacketFlowTrace(std::string action,
+                                          uint32_t nodeId,
+                                          const Ipv6Header& header,
+                                          Ptr<const Packet> packet,
+                                          uint32_t interface)
+{
+    std::cout << "[IPv6-FLOW]"
+              << " t=" << Simulator::Now().GetSeconds() << "s"
+              << " node=n" << nodeId
+              << " action=" << action
+              << " interface=" << interface
+              << " src=" << header.GetSource()
+              << " dst=" << header.GetDestination()
+              << " protocol=" << GetProtocolName(header.GetNextHeader())
+              << " hopLimit=" << static_cast<uint32_t>(header.GetHopLimit())
+              << " bytes=" << packet->GetSize() + header.GetSerializedSize() << std::endl;
+}
+
+void
+SimulationDebugHelper::EnableIpv6PacketFlowTracing()
 {
     std::cout << "\n"
-              << "================ ns-3 Second Tutorial Topology ================\n"
-              << "Total unique nodes : " << nCsma + 2 << "\n"
-              << "Point-to-point link: 10.1.1.0/24, 5 Mbps, 2 ms delay\n"
-              << "CSMA LAN           : 10.1.2.0/24, 100 Mbps, 6560 ns delay\n"
-              << "\n"
-              << "Point-to-point segment\n"
-              << "  n0 [Node ID " << p2pNodes.Get(0)->GetId() << "]\n"
-              << "    Role       : UDP Echo client\n"
-              << "    IPv4       : " << p2pInterfaces.GetAddress(0) << "\n"
-              << "    Device/MAC : " << p2pDevices.Get(0)->GetAddress() << "\n"
-              << "  n1 [Node ID " << p2pNodes.Get(1)->GetId() << "]\n"
-              << "    Role       : router between point-to-point and CSMA\n"
-              << "    P2P IPv4   : " << p2pInterfaces.GetAddress(1) << "\n"
-              << "    P2P MAC    : " << p2pDevices.Get(1)->GetAddress() << "\n"
-              << "    CSMA IPv4  : " << csmaInterfaces.GetAddress(0) << "\n"
-              << "    CSMA MAC   : " << csmaDevices.Get(0)->GetAddress() << "\n"
-              << "\n"
-              << "CSMA LAN nodes\n";
+              << "IPv6 packet-flow trace is enabled:\n"
+              << "  SEND    = the source node created an IPv6 packet\n"
+              << "  FORWARD = a router selected an outgoing route\n"
+              << "  DELIVER = the destination node accepted the packet locally\n"
+              << std::flush;
 
-    for (uint32_t i = 1; i <= nCsma; ++i)
+    for (auto node = NodeList::Begin(); node != NodeList::End(); ++node)
     {
-        const bool isServer = (i == serverCsmaIndex);
-        std::cout << "  n" << i + 1 << " [Node ID " << csmaNodes.Get(i)->GetId() << "]\n"
-                  << "    Role       : "
-                  << (isServer ? "UDP Echo server" : "CSMA LAN host") << "\n"
-                  << "    IPv4       : " << csmaInterfaces.GetAddress(i) << "\n"
-                  << "    Device/MAC : " << csmaDevices.Get(i)->GetAddress() << "\n";
+        Ptr<Ipv6L3Protocol> ipv6 = (*node)->GetObject<Ipv6L3Protocol>();
+        if (!ipv6)
+        {
+            continue;
+        }
+
+        const uint32_t nodeId = (*node)->GetId();
+        ipv6->TraceConnectWithoutContext(
+            "SendOutgoing",
+            MakeBoundCallback(&SimulationDebugHelper::Ipv6PacketFlowTrace,
+                              std::string("SEND"),
+                              nodeId));
+        ipv6->TraceConnectWithoutContext(
+            "UnicastForward",
+            MakeBoundCallback(&SimulationDebugHelper::Ipv6PacketFlowTrace,
+                              std::string("FORWARD"),
+                              nodeId));
+        ipv6->TraceConnectWithoutContext(
+            "LocalDeliver",
+            MakeBoundCallback(&SimulationDebugHelper::Ipv6PacketFlowTrace,
+                              std::string("DELIVER"),
+                              nodeId));
     }
+}
+
+void
+SimulationDebugHelper::PrintTopology(const std::string& title, bool printAttributes)
+{
+    std::map<uint32_t, Ptr<Channel>> channels;
 
     std::cout << "\n"
-              << "Application flow\n"
-              << "  Protocol     : UDP Echo\n"
-              << "  Source       : n0/" << p2pInterfaces.GetAddress(0) << "\n"
-              << "  Destination  : n" << serverCsmaIndex + 1 << "/"
-              << csmaInterfaces.GetAddress(serverCsmaIndex) << ":9\n"
-              << "  Packet count : 1 request plus 1 reply\n"
-              << "  Payload size : 1024 bytes\n"
-              << "  IPv4 size    : 1052 bytes (1024 payload + 8 UDP + 20 IPv4)\n"
-              << "  Server active: 1 s to 10 s\n"
-              << "  Client active: 2 s to 10 s\n"
-              << "  Expected path: n0 -> n1 (router) -> n" << serverCsmaIndex + 1
-              << " -> n1 (router) -> n0\n"
-              << "\n"
-              << "Tracing\n"
-              << "  Point-to-point PCAP: second-0-0.pcap and second-1-0.pcap\n"
-              << "  CSMA PCAP          : promiscuous capture on the first extra LAN node\n"
-              << "===============================================================\n"
+              << "================ " << title << " ================\n"
+              << "Nodes    : " << NodeList::GetNNodes() << "\n";
+
+    for (auto iterator = NodeList::Begin(); iterator != NodeList::End(); ++iterator)
+    {
+        const Ptr<Node> node = *iterator;
+        const Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+        const Ptr<Ipv6> ipv6 = node->GetObject<Ipv6>();
+
+        std::cout << "\nNode n" << node->GetId() << "\n"
+                  << "  System ID    : " << node->GetSystemId() << "\n"
+                  << "  Applications : " << node->GetNApplications() << "\n"
+                  << "  Devices      : " << node->GetNDevices() << "\n";
+
+        if (ipv4 && ipv4->GetRoutingProtocol())
+        {
+            const Ptr<Ipv4RoutingProtocol> routing = ipv4->GetRoutingProtocol();
+            std::cout << "  IPv4 routing: " << routing->GetInstanceTypeId().GetName() << "\n";
+            const Ptr<Ipv4ListRouting> list = DynamicCast<Ipv4ListRouting>(routing);
+            if (list)
+            {
+                for (uint32_t index = 0; index < list->GetNRoutingProtocols(); ++index)
+                {
+                    int16_t priority;
+                    const Ptr<Ipv4RoutingProtocol> protocol =
+                        list->GetRoutingProtocol(index, priority);
+                    std::cout << "    priority=" << priority
+                              << " protocol=" << protocol->GetInstanceTypeId().GetName() << "\n";
+                }
+            }
+        }
+        if (ipv6 && ipv6->GetRoutingProtocol())
+        {
+            const Ptr<Ipv6RoutingProtocol> routing = ipv6->GetRoutingProtocol();
+            std::cout << "  IPv6 routing: " << routing->GetInstanceTypeId().GetName() << "\n";
+            const Ptr<Ipv6ListRouting> list = DynamicCast<Ipv6ListRouting>(routing);
+            if (list)
+            {
+                for (uint32_t index = 0; index < list->GetNRoutingProtocols(); ++index)
+                {
+                    int16_t priority;
+                    const Ptr<Ipv6RoutingProtocol> protocol =
+                        list->GetRoutingProtocol(index, priority);
+                    std::cout << "    priority=" << priority
+                              << " protocol=" << protocol->GetInstanceTypeId().GetName() << "\n";
+                }
+            }
+        }
+
+        for (uint32_t applicationIndex = 0; applicationIndex < node->GetNApplications();
+             ++applicationIndex)
+        {
+            const Ptr<Application> application = node->GetApplication(applicationIndex);
+            std::cout << "    app[" << applicationIndex
+                      << "] model=" << application->GetInstanceTypeId().GetName() << "\n";
+            if (printAttributes)
+            {
+                PrintObjectAttributes(application, "      attribute.");
+            }
+        }
+
+        for (uint32_t deviceIndex = 0; deviceIndex < node->GetNDevices(); ++deviceIndex)
+        {
+            const Ptr<NetDevice> device = node->GetDevice(deviceIndex);
+            const Ptr<Channel> channel = device->GetChannel();
+
+            std::cout << "    dev[" << deviceIndex << "]"
+                      << " ifIndex=" << device->GetIfIndex()
+                      << " model=" << device->GetInstanceTypeId().GetName()
+                      << " address=" << device->GetAddress()
+                      << " mtu=" << device->GetMtu()
+                      << " link=" << (device->IsLinkUp() ? "up" : "down");
+
+            if (channel)
+            {
+                channels[channel->GetId()] = channel;
+                std::cout << " channel=ch" << channel->GetId() << " ("
+                          << channel->GetInstanceTypeId().GetName() << ")";
+            }
+            else
+            {
+                std::cout << " channel=none (virtual, loopback, or unattached device)";
+            }
+            std::cout << "\n";
+
+            if (printAttributes)
+            {
+                PrintObjectAttributes(device, "      attribute.");
+            }
+
+            if (ipv4)
+            {
+                const int32_t interface = ipv4->GetInterfaceForDevice(device);
+                if (interface >= 0)
+                {
+                    for (uint32_t addressIndex = 0;
+                         addressIndex < ipv4->GetNAddresses(interface);
+                         ++addressIndex)
+                    {
+                        const Ipv4InterfaceAddress address =
+                            ipv4->GetAddress(interface, addressIndex);
+                        std::cout << "      IPv4[" << interface << ":" << addressIndex
+                                  << "]=" << address.GetLocal()
+                                  << " mask=" << address.GetMask()
+                                  << " broadcast=" << address.GetBroadcast() << "\n";
+                    }
+                }
+            }
+
+            if (ipv6)
+            {
+                const int32_t interface = ipv6->GetInterfaceForDevice(device);
+                if (interface >= 0)
+                {
+                    for (uint32_t addressIndex = 0;
+                         addressIndex < ipv6->GetNAddresses(interface);
+                         ++addressIndex)
+                    {
+                        const Ipv6InterfaceAddress address =
+                            ipv6->GetAddress(interface, addressIndex);
+                        std::cout << "      IPv6[" << interface << ":" << addressIndex
+                                  << "]=" << address.GetAddress()
+                                  << " prefix=" << address.GetPrefix() << "\n";
+                    }
+                }
+            }
+        }
+    }
+
+    std::cout << "\nChannels : " << channels.size() << "\n";
+    for (const auto& [channelId, channel] : channels)
+    {
+        std::cout << "  ch" << channelId
+                  << " model=" << channel->GetInstanceTypeId().GetName()
+                  << " endpoints=" << channel->GetNDevices() << "\n";
+        if (printAttributes)
+        {
+            PrintObjectAttributes(channel, "    attribute.");
+        }
+        for (std::size_t endpoint = 0; endpoint < channel->GetNDevices(); ++endpoint)
+        {
+            const Ptr<NetDevice> device = channel->GetDevice(endpoint);
+            const Ptr<Node> node = device ? device->GetNode() : nullptr;
+            std::cout << "    [" << endpoint << "] ";
+            if (node && device)
+            {
+                std::cout << "n" << node->GetId()
+                          << "/dev" << device->GetIfIndex()
+                          << " address=" << device->GetAddress();
+            }
+            else
+            {
+                std::cout << "unattached";
+            }
+            std::cout << "\n";
+        }
+    }
+    std::cout << "===============================================================\n"
               << std::flush;
 }
 
@@ -150,25 +357,6 @@ SimulationDebugHelper::PrintIpv4RoutingTablesAt(Time printTime)
               << printTime.GetSeconds() << " s.\n";
     Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
     Ipv4RoutingHelper::PrintRoutingTableAllAt(printTime, routingStream);
-}
-
-void
-SimulationDebugHelper::PrintUdpEchoSummary(Time finishTime,
-                                         uint32_t serverNodeId,
-                                         bool printRoutes,
-                                         bool tracePackets)
-{
-    std::cout << "\n================ Simulation Summary =================\n"
-              << "Finished at       : " << finishTime.GetSeconds() << " s\n"
-              << "UDP Echo exchange : completed; request and reply logs are shown above\n"
-              << "Request path      : n0 SEND -> n1 FORWARD -> n" << serverNodeId
-              << " DELIVER\n"
-              << "Reply path        : n" << serverNodeId
-              << " SEND -> n1 FORWARD -> n0 DELIVER\n"
-              << "Routing tables     : " << (printRoutes ? "printed" : "disabled") << "\n"
-              << "IPv4 packet trace  : " << (tracePackets ? "printed above" : "disabled") << "\n"
-              << "PCAP traces        : written with prefix second\n"
-              << "=====================================================\n";
 }
 
 } // namespace ns3
