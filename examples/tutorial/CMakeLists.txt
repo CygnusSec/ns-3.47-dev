@@ -26,6 +26,7 @@ build_example(
     ${libcsma}
     ${libinternet}
     ${libapplications}
+    ${libdebug-tools}
 )
 
 # Build the combined Wi-Fi, point-to-point, and CSMA topology.

@@ -5,6 +5,7 @@
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
 #include "ns3/csma-module.h"
+#include "ns3/simulation-debug-helper.h"
 #include "ns3/internet-module.h"
 #include "ns3/ipv4-global-routing-helper.h"
 #include "ns3/network-module.h"
@@ -33,10 +34,18 @@ main(int argc, char* argv[])
     // Create three extra LAN nodes in addition to the point-to-point gateway.
     uint32_t nCsma = 3;
 
+    // Print every node's routing table at 0.5 seconds by default.
+    bool printRoutes = true;
+
+    // Print every IPv4 send, forward, and local-delivery action by default.
+    bool tracePackets = true;
+
     // Register user-configurable command-line arguments.
     CommandLine cmd(__FILE__);
     cmd.AddValue("nCsma", "Number of \"extra\" CSMA nodes/devices", nCsma);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
+    cmd.AddValue("printRoutes", "Print all IPv4 routing tables if true", printRoutes);
+    cmd.AddValue("tracePackets", "Print IPv4 packet forwarding actions if true", tracePackets);
 
     // Apply values supplied through arguments such as --nCsma=5.
     cmd.Parse(argc, argv);
@@ -120,6 +129,27 @@ main(int argc, char* argv[])
     // Calculate routes between the point-to-point and CSMA subnets.
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
+    // Print a readable description after every device and address is known.
+    SimulationDebugHelper::PrintPointToPointCsmaTopology(p2pNodes,
+                                                         csmaNodes,
+                                                         p2pDevices,
+                                                         csmaDevices,
+                                                         p2pInterfaces,
+                                                         csmaInterfaces,
+                                                         nCsma);
+
+    // Schedule a detailed routing-table dump before application traffic begins.
+    if (printRoutes)
+    {
+        SimulationDebugHelper::PrintIpv4RoutingTablesAt(Seconds(0.5));
+    }
+
+    // Connect after configuration but before Simulator::Run() processes any traffic.
+    if (tracePackets)
+    {
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
+
     // Capture every point-to-point device into second-*.pcap files.
     pointToPoint.EnablePcapAll("second");
     // Capture the selected CSMA device; true enables promiscuous capture.
@@ -127,6 +157,13 @@ main(int argc, char* argv[])
 
     // Process all scheduled events, then free global simulator state.
     Simulator::Run();
+
+    // Simulator::Now() is 10 seconds because application stop events remain in the queue.
+    SimulationDebugHelper::PrintUdpEchoSummary(Simulator::Now(),
+                                               csmaNodes.Get(nCsma)->GetId(),
+                                               printRoutes,
+                                               tracePackets);
+
     Simulator::Destroy();
     return 0;
 }
