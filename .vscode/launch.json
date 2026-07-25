@@ -5,6 +5,31 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Debug ns-3 first in container",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/workspace/ns-3/build/examples/tutorial/ns3.47-first-debug",
+            "args": [],
+            "stopAtEntry": true,
+            "cwd": "/workspace/ns-3",
+            "environment": [
+                {
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "/workspace/ns-3/build/lib"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable GDB pretty-printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "(gdb) Launch from scratch",
             "type": "cppdbg",
             "request": "launch",

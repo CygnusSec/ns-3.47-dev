@@ -11,9 +11,23 @@ services:
     tty: true
     working_dir: /workspace/ns-3
     command: ["sleep", "infinity"]
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      # gdbserver is reachable directly through every Ubuntu host interface.
+      # Restrict this port to trusted client IPs with the host/network firewall.
+      - "0.0.0.0:${NS3_GDB_PORT:-2345}:2345"
     volumes:
       - .:/workspace/ns-3
       - ns3-ccache:/home/ns3/.cache/ccache
+      - ns3-build:/workspace/ns-3/build
+      - ns3-cmake-cache:/workspace/ns-3/cmake-cache
+      - ns3-clion-cache-mask:/workspace/ns-3/cmake-build-debug
 
 volumes:
   ns3-ccache:
+  ns3-build:
+  ns3-cmake-cache:
+  ns3-clion-cache-mask:

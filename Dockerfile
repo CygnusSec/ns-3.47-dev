@@ -13,6 +13,8 @@ RUN apt-get update \
         cmake \
         g++ \
         gcc \
+        gdb \
+        gdbserver \
         git \
         iproute2 \
         libeigen3-dev \
@@ -24,9 +26,12 @@ RUN apt-get update \
         pkg-config \
         python3 \
         tcpdump \
+        valgrind \
     && rm -rf /var/lib/apt/lists/*
 
-RUN existing_user="$(getent passwd "${NS3_UID}" | cut -d: -f1)" \
+RUN test "${NS3_UID}" -ne 0 \
+    && test "${NS3_GID}" -ne 0 \
+    && existing_user="$(getent passwd "${NS3_UID}" | cut -d: -f1)" \
     && if [ -n "${existing_user}" ]; then userdel --remove "${existing_user}"; fi \
     && existing_group="$(getent group "${NS3_GID}" | cut -d: -f1)" \
     && if [ -n "${existing_group}" ]; then groupdel "${existing_group}"; fi \

@@ -4,6 +4,7 @@
 .cache
 .idea
 .vscode
+.lock-ns3_*_build
 
 build
 build-dir
