@@ -35,6 +35,7 @@ class SimulationDebugHelper
      * @param p2pInterfaces IPv4 interfaces in the point-to-point subnet.
      * @param csmaInterfaces IPv4 interfaces in the CSMA subnet.
      * @param nCsma Number of extra CSMA nodes.
+     * @param serverCsmaIndex Index of the server inside csmaNodes.
      */
     static void PrintPointToPointCsmaTopology(const NodeContainer& p2pNodes,
                                               const NodeContainer& csmaNodes,
@@ -42,7 +43,8 @@ class SimulationDebugHelper
                                               const NetDeviceContainer& csmaDevices,
                                               const Ipv4InterfaceContainer& p2pInterfaces,
                                               const Ipv4InterfaceContainer& csmaInterfaces,
-                                              uint32_t nCsma);
+                                              uint32_t nCsma,
+                                              uint32_t serverCsmaIndex);
 
     /**
      * Print every node's IPv4 routing table at a scheduled simulation time.

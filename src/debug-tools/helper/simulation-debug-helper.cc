@@ -89,7 +89,8 @@ SimulationDebugHelper::PrintPointToPointCsmaTopology(
     const NetDeviceContainer& csmaDevices,
     const Ipv4InterfaceContainer& p2pInterfaces,
     const Ipv4InterfaceContainer& csmaInterfaces,
-    uint32_t nCsma)
+    uint32_t nCsma,
+    uint32_t serverCsmaIndex)
 {
     std::cout << "\n"
               << "================ ns-3 Second Tutorial Topology ================\n"
@@ -113,7 +114,7 @@ SimulationDebugHelper::PrintPointToPointCsmaTopology(
 
     for (uint32_t i = 1; i <= nCsma; ++i)
     {
-        const bool isServer = (i == nCsma);
+        const bool isServer = (i == serverCsmaIndex);
         std::cout << "  n" << i + 1 << " [Node ID " << csmaNodes.Get(i)->GetId() << "]\n"
                   << "    Role       : "
                   << (isServer ? "UDP Echo server" : "CSMA LAN host") << "\n"
@@ -125,14 +126,14 @@ SimulationDebugHelper::PrintPointToPointCsmaTopology(
               << "Application flow\n"
               << "  Protocol     : UDP Echo\n"
               << "  Source       : n0/" << p2pInterfaces.GetAddress(0) << "\n"
-              << "  Destination  : n" << nCsma + 1 << "/"
-              << csmaInterfaces.GetAddress(nCsma) << ":9\n"
+              << "  Destination  : n" << serverCsmaIndex + 1 << "/"
+              << csmaInterfaces.GetAddress(serverCsmaIndex) << ":9\n"
               << "  Packet count : 1 request plus 1 reply\n"
               << "  Payload size : 1024 bytes\n"
               << "  IPv4 size    : 1052 bytes (1024 payload + 8 UDP + 20 IPv4)\n"
               << "  Server active: 1 s to 10 s\n"
               << "  Client active: 2 s to 10 s\n"
-              << "  Expected path: n0 -> n1 (router) -> n" << nCsma + 1
+              << "  Expected path: n0 -> n1 (router) -> n" << serverCsmaIndex + 1
               << " -> n1 (router) -> n0\n"
               << "\n"
               << "Tracing\n"

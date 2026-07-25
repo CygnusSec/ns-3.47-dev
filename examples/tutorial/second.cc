@@ -34,6 +34,9 @@ main(int argc, char* argv[])
     // Create three extra LAN nodes in addition to the point-to-point gateway.
     uint32_t nCsma = 3;
 
+    // Zero selects the final CSMA node; --serverNode can select n2, n3, and so on.
+    uint32_t serverNode = 0;
+
     // Print every node's routing table at 0.5 seconds by default.
     bool printRoutes = true;
 
@@ -43,6 +46,9 @@ main(int argc, char* argv[])
     // Register user-configurable command-line arguments.
     CommandLine cmd(__FILE__);
     cmd.AddValue("nCsma", "Number of \"extra\" CSMA nodes/devices", nCsma);
+    cmd.AddValue("serverNode",
+                 "UDP Echo server node number; 0 selects the final CSMA node",
+                 serverNode);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
     cmd.AddValue("printRoutes", "Print all IPv4 routing tables if true", printRoutes);
     cmd.AddValue("tracePackets", "Print IPv4 packet forwarding actions if true", tracePackets);
@@ -59,6 +65,15 @@ main(int argc, char* argv[])
 
     // Preserve at least one extra CSMA node so the server index remains valid.
     nCsma = nCsma == 0 ? 1 : nCsma;
+
+    // csmaNodes index zero is global node n1, so global node n2 maps to index one.
+    if (serverNode == 0)
+    {
+        serverNode = nCsma + 1;
+    }
+    NS_ABORT_MSG_IF(serverNode < 2 || serverNode > nCsma + 1,
+                    "serverNode must be between 2 and " << nCsma + 1);
+    const uint32_t serverCsmaIndex = serverNode - 1;
 
     // Create the two endpoints of the point-to-point link.
     NodeContainer p2pNodes;
@@ -108,14 +123,14 @@ main(int argc, char* argv[])
     // Create a UDP Echo server listening on port 9.
     UdpEchoServerHelper echoServer(9);
 
-    // Install the server on the final extra CSMA node.
-    ApplicationContainer serverApps = echoServer.Install(csmaNodes.Get(nCsma));
+    // Install the server on the selected extra CSMA node.
+    ApplicationContainer serverApps = echoServer.Install(csmaNodes.Get(serverCsmaIndex));
     // Start the server before the client and stop it at 10 seconds.
     serverApps.Start(Seconds(1));
     serverApps.Stop(Seconds(10));
 
     // Send Echo requests to the server's CSMA address and port.
-    UdpEchoClientHelper echoClient(csmaInterfaces.GetAddress(nCsma), 9);
+    UdpEchoClientHelper echoClient(csmaInterfaces.GetAddress(serverCsmaIndex), 9);
     // Send one 1024-byte packet, with a one-second interval if more are requested.
     echoClient.SetAttribute("MaxPackets", UintegerValue(1));
     echoClient.SetAttribute("Interval", TimeValue(Seconds(1)));
@@ -136,7 +151,8 @@ main(int argc, char* argv[])
                                                          csmaDevices,
                                                          p2pInterfaces,
                                                          csmaInterfaces,
-                                                         nCsma);
+                                                         nCsma,
+                                                         serverCsmaIndex);
 
     // Schedule a detailed routing-table dump before application traffic begins.
     if (printRoutes)
@@ -160,7 +176,7 @@ main(int argc, char* argv[])
 
     // Simulator::Now() is 10 seconds because application stop events remain in the queue.
     SimulationDebugHelper::PrintUdpEchoSummary(Simulator::Now(),
-                                               csmaNodes.Get(nCsma)->GetId(),
+                                               csmaNodes.Get(serverCsmaIndex)->GetId(),
                                                printRoutes,
                                                tracePackets);
 
