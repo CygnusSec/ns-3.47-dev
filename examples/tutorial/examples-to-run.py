@@ -1,5 +1,7 @@
 #! /usr/bin/env python3
 
+# This file supplies metadata to test.py; it does not run a simulation itself.
+#
 # A list of C++ examples to run in order to ensure that they remain
 # buildable and runnable over time.  Each tuple in the list contains
 #
@@ -7,6 +9,7 @@
 #
 # See test.py for more information.
 cpp_examples = [
+    # Each entry enables the normal run and its supported Valgrind run.
     ("first", "True", "True"),
     ("hello-simulator", "True", "True"),
     ("second", "True", "True"),
@@ -24,5 +27,6 @@ cpp_examples = [
 #
 # See test.py for more information.
 python_examples = [
+    # Only first.py is enabled in the default automated Python example set.
     ("first.py", "True"),
 ]

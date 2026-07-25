@@ -4,6 +4,7 @@
 # Ported to Python by Mohit P. Tahiliani
 #
 
+# Import ns-3 bindings plus argument and mutable-value support.
 try:
     from ns import ns
 except ModuleNotFoundError:
@@ -27,11 +28,13 @@ from ctypes import c_bool, c_int
 # //                                     LAN 10.1.2.0
 
 
+# Define mutable defaults that CommandLine can update.
 nCsma = c_int(3)
 verbose = c_bool(True)
 nWifi = c_int(3)
 tracing = c_bool(False)
 
+# Register and parse topology, logging, and tracing options.
 cmd = ns.CommandLine(__file__)
 cmd.AddValue("nCsma", "Number of extra CSMA nodes/devices", nCsma)
 cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi)
@@ -47,10 +50,12 @@ if nWifi.value > 18:
     print("nWifi should be 18 or less; otherwise grid layout exceeds the bounding box")
     sys.exit(1)
 
+# Enable UDP Echo application messages when requested.
 if verbose.value:
     ns.LogComponentEnable("UdpEchoClientApplication", ns.LOG_LEVEL_INFO)
     ns.LogComponentEnable("UdpEchoServerApplication", ns.LOG_LEVEL_INFO)
 
+# Create and configure the point-to-point backbone.
 p2pNodes = ns.NodeContainer()
 p2pNodes.Create(2)
 
@@ -60,6 +65,7 @@ pointToPoint.SetChannelAttribute("Delay", ns.StringValue("2ms"))
 
 p2pDevices = pointToPoint.Install(p2pNodes)
 
+# Add a CSMA LAN behind backbone endpoint n1.
 csmaNodes = ns.NodeContainer()
 csmaNodes.Add(p2pNodes.Get(1))
 csmaNodes.Create(nCsma.value)
@@ -70,10 +76,12 @@ csma.SetChannelAttribute("Delay", ns.TimeValue(ns.NanoSeconds(6560)))
 
 csmaDevices = csma.Install(csmaNodes)
 
+# Create station nodes and reuse backbone endpoint n0 as the access point.
 wifiStaNodes = ns.NodeContainer()
 wifiStaNodes.Create(nWifi.value)
 wifiApNode = p2pNodes.Get(0)
 
+# Create the wireless channel, PHY, SSID, and MAC helpers.
 channel = ns.YansWifiChannelHelper.Default()
 phy = ns.YansWifiPhyHelper()
 phy.SetChannel(channel.Create())
@@ -83,12 +91,15 @@ ssid = ns.Ssid("ns-3-ssid")
 
 wifi = ns.WifiHelper()
 
+# Install station devices without active probing.
 mac.SetType("ns3::StaWifiMac", "Ssid", ns.SsidValue(ssid), "ActiveProbing", ns.BooleanValue(False))
 staDevices = wifi.Install(phy, mac, wifiStaNodes)
 
+# Reconfigure the helper and install the access-point device.
 mac.SetType("ns3::ApWifiMac", "Ssid", ns.SsidValue(ssid))
 apDevices = wifi.Install(phy, mac, wifiApNode)
 
+# Give stations grid start positions and bounded random-walk mobility.
 mobility = ns.MobilityHelper()
 mobility.SetPositionAllocator(
     "ns3::GridPositionAllocator",
@@ -113,14 +124,17 @@ mobility.SetMobilityModel(
 )
 mobility.Install(wifiStaNodes)
 
+# Keep the access point stationary.
 mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel")
 mobility.Install(wifiApNode)
 
+# Install Internet protocols on every node.
 stack = ns.InternetStackHelper()
 stack.Install(csmaNodes)
 stack.Install(wifiApNode)
 stack.Install(wifiStaNodes)
 
+# Assign a distinct IPv4 subnet to each segment.
 address = ns.Ipv4AddressHelper()
 address.SetBase(ns.Ipv4Address("10.1.1.0"), ns.Ipv4Mask("255.255.255.0"))
 p2pInterfaces = address.Assign(p2pDevices)
@@ -132,6 +146,7 @@ address.SetBase(ns.Ipv4Address("10.1.3.0"), ns.Ipv4Mask("255.255.255.0"))
 address.Assign(staDevices)
 address.Assign(apDevices)
 
+# Place the server on the LAN and the client on the last Wi-Fi station.
 echoServer = ns.UdpEchoServerHelper(9)
 
 serverApps = echoServer.Install(csmaNodes.Get(nCsma.value))
@@ -147,15 +162,18 @@ clientApps = echoClient.Install(wifiStaNodes.Get(nWifi.value - 1))
 clientApps.Start(ns.Seconds(2))
 clientApps.Stop(ns.Seconds(10))
 
+# Populate routes across all three networks and cap runtime at 10 seconds.
 ns.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 
 ns.Simulator.Stop(ns.Seconds(10))
 
+# Optionally capture representative traffic on every link technology.
 if tracing.value:
     phy.SetPcapDataLinkType(phy.DLT_IEEE802_11_RADIO)
     pointToPoint.EnablePcapAll("third")
     phy.EnablePcap("third", apDevices.Get(0))
     csma.EnablePcap("third", csmaDevices.Get(0), True)
 
+# Execute all events and free simulator-global resources.
 ns.Simulator.Run()
 ns.Simulator.Destroy()

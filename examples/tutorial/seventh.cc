@@ -65,6 +65,7 @@ NS_LOG_COMPONENT_DEFINE("SeventhScriptExample");
 static void
 CwndChange(Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
 {
+    // Display the new window and persist the complete change as trace data.
     NS_LOG_UNCOND(Simulator::Now().GetSeconds() << "\t" << newCwnd);
     *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldCwnd << "\t" << newCwnd
                          << std::endl;
@@ -79,6 +80,7 @@ CwndChange(Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
 static void
 RxDrop(Ptr<PcapFileWrapper> file, Ptr<const Packet> p)
 {
+    // Record both a readable drop time and the dropped packet's PCAP bytes.
     NS_LOG_UNCOND("RxDrop at " << Simulator::Now().GetSeconds());
     file->Write(Simulator::Now(), p);
 }
@@ -86,12 +88,15 @@ RxDrop(Ptr<PcapFileWrapper> file, Ptr<const Packet> p)
 int
 main(int argc, char* argv[])
 {
+    // Use IPv4 by default; --useIpv6=true switches all address/probe settings.
     bool useV6 = false;
 
+    // Register and parse the address-family option.
     CommandLine cmd(__FILE__);
     cmd.AddValue("useIpv6", "Use Ipv6", useV6);
     cmd.Parse(argc, argv);
 
+    // Create and connect the TCP sender and receiver nodes.
     NodeContainer nodes;
     nodes.Create(2);
 
@@ -102,13 +107,16 @@ main(int argc, char* argv[])
     NetDeviceContainer devices;
     devices = pointToPoint.Install(nodes);
 
+    // Add random receiver-side corruption so TCP experiences packet loss.
     Ptr<RateErrorModel> em = CreateObject<RateErrorModel>();
     em->SetAttribute("ErrorRate", DoubleValue(0.00001));
     devices.Get(1)->SetAttribute("ReceiveErrorModel", PointerValue(em));
 
+    // Install both IPv4 and IPv6-capable Internet stacks.
     InternetStackHelper stack;
     stack.Install(nodes);
 
+    // These variables are filled with family-specific addresses and probe names.
     uint16_t sinkPort = 8080;
     Address sinkAddress;
     Address anyAddress;
@@ -116,6 +124,7 @@ main(int argc, char* argv[])
     std::string tracePath;
     if (!useV6)
     {
+        // Assign IPv4 addresses and observe IPv4 layer transmit events.
         Ipv4AddressHelper address;
         address.SetBase("10.1.1.0", "255.255.255.0");
         Ipv4InterfaceContainer interfaces = address.Assign(devices);
@@ -126,6 +135,7 @@ main(int argc, char* argv[])
     }
     else
     {
+        // Assign IPv6 addresses and observe the equivalent IPv6 transmit events.
         Ipv6AddressHelper address;
         address.SetBase("2001:0000:f00d:cafe::", Ipv6Prefix(64));
         Ipv6InterfaceContainer interfaces = address.Assign(devices);
@@ -135,11 +145,13 @@ main(int argc, char* argv[])
         tracePath = "/NodeList/*/$ns3::Ipv6L3Protocol/Tx";
     }
 
+    // Install a TCP sink using the wildcard address for the selected family.
     PacketSinkHelper packetSinkHelper("ns3::TcpSocketFactory", anyAddress);
     ApplicationContainer sinkApps = packetSinkHelper.Install(nodes.Get(1));
     sinkApps.Start(Seconds(0.));
     sinkApps.Stop(Seconds(20.));
 
+    // Create the traced sender socket and the custom traffic application.
     Ptr<Socket> ns3TcpSocket = Socket::CreateSocket(nodes.Get(0), TcpSocketFactory::GetTypeId());
 
     Ptr<TutorialApp> app = CreateObject<TutorialApp>();
@@ -148,11 +160,13 @@ main(int argc, char* argv[])
     app->SetStartTime(Seconds(1.));
     app->SetStopTime(Seconds(20.));
 
+    // Persist TCP congestion-window changes in seventh.cwnd.
     AsciiTraceHelper asciiTraceHelper;
     Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream("seventh.cwnd");
     ns3TcpSocket->TraceConnectWithoutContext("CongestionWindow",
                                              MakeBoundCallback(&CwndChange, stream));
 
+    // Persist receiver-side dropped packets in seventh.pcap.
     PcapHelper pcapHelper;
     Ptr<PcapFileWrapper> file =
         pcapHelper.CreateFile("seventh.pcap", std::ios::out, PcapHelper::DLT_PPP);
@@ -192,6 +206,7 @@ main(int argc, char* argv[])
     // probe output trace source ("OutputBytes") to write.
     fileHelper.WriteProbe(probeType, tracePath, "OutputBytes");
 
+    // Run all probes, aggregators, and traffic for 20 simulated seconds.
     Simulator::Stop(Seconds(20));
     Simulator::Run();
     Simulator::Destroy();
