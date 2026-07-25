@@ -1443,12 +1443,12 @@ An example debug configuration is:
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug ns-3 first in container",
+      "name": "Debug ns-3 program in container",
       "type": "cppdbg",
       "request": "launch",
-      "program": "/workspace/ns-3/build/examples/tutorial/ns3.47-first-debug",
+      "program": "${workspaceFolder}/build/${input:ns3Executable}",
       "args": [],
-      "cwd": "/workspace/ns-3",
+      "cwd": "${workspaceFolder}",
       "stopAtEntry": true,
       "MIMode": "gdb",
       "miDebuggerPath": "/usr/bin/gdb",
@@ -1538,6 +1538,15 @@ Although the UI is on macOS, the extension host, GDB, executable, libraries,
 and build directory all remain on Linux. Source changes are saved directly to
 the Ubuntu checkout mounted into the container.
 
+When VS Code is connected to the Ubuntu host through Remote SSH but is not
+attached to the container, select the checked-in
+`Remote SSH: debug through Docker exec` profile. Its `pipeTransport` starts
+`/usr/bin/gdb` using `docker compose exec -T ns3`, maps
+`/workspace/ns-3` to the SSH workspace, and does not require gdbserver or port
+2345. It prompts for an executable path relative to the container's `build/`
+directory, so the selected editor tab does not affect program selection. See
+`DOCKER.md` for the exact workflow.
+
 The command-line workflow remains available at the same time:
 
 ```bash
@@ -1591,6 +1600,13 @@ sudo ufw allow from MAC_IP to any port 2345 proto tcp
 
 Do not expose this port to the public Internet. Use a trusted LAN or VPN for
 direct access.
+
+The checked-in `.vscode/launch.json` also contains a
+`Remote gdbserver: ns-3 first` profile for a VS Code UI running directly on
+macOS. It prompts for `UBUNTU_SERVER_IP:2345`, maps the container source prefix
+`/workspace/ns-3` to the local workspace, and reads matching symbols from the
+git-ignored `remote-debug/` directory. Follow the symbol export and connection
+steps in `DOCKER.md`.
 
 For VS Code, Remote SSH plus Dev Containers is still the recommended mode.
 Use raw `gdbserver` only when the selected IDE cannot attach its debugger

@@ -232,13 +232,61 @@ In VS Code on macOS:
 2. Open the repository directory on Ubuntu.
 3. Run `Dev Containers: Attach to Running Container`.
 4. Select the `ns3` container and open `/workspace/ns-3`.
-5. Open `examples/tutorial/first.cc`, set a breakpoint, and start the
-   `Debug ns-3 first in container` launch configuration described in the
-   tutorial.
+5. Open an example program such as `examples/tutorial/first.cc`, set a
+   breakpoint, and start the `Debug ns-3 program in container` launch
+   configuration described in the tutorial.
 
 All file paths visible to the debugger are container paths, so breakpoint
 mapping works without copying Linux binaries to macOS. The original
 command-line GDB workflow above remains available.
+
+### Remote SSH with GDB through Docker exec
+
+The `Remote SSH: debug through Docker exec` VS Code profile is the shortest
+workflow when the editor is connected to the Ubuntu Server with Remote - SSH
+but is not attached to the container. It starts GDB inside the existing `ns3`
+service through `docker compose exec`. The pipe ends with `sh -c` so the
+debugger path and MI arguments added by the C/C++ extension are parsed as a
+command instead of one executable filename. It does not use gdbserver or port
+2345.
+
+On Ubuntu, start the service and build the program:
+
+```bash
+docker compose up -d
+docker compose exec ns3 ./ns3 build first -j 2
+```
+
+In VS Code on macOS:
+
+1. Connect to Ubuntu with `Remote-SSH: Connect to Host`.
+2. Open the repository on Ubuntu, for example
+   `/home/ubuntu/ns-3.47-dev`.
+3. Install the Microsoft C/C++ extension in the SSH remote environment.
+4. Open the source file where the breakpoint should be placed.
+5. Select `Remote SSH: debug through Docker exec`.
+6. Press F5 and enter the executable path relative to `build/`, for example
+   `examples/tutorial/ns3.47-first-debug`.
+
+That input resolves to:
+
+```text
+/workspace/ns-3/build/examples/tutorial/ns3.47-first-debug
+```
+
+The profile maps `/workspace/ns-3` back to the repository opened over SSH, so
+breakpoints appear in the host-side editor while GDB and the executable remain
+inside the container. The SSH user must have permission to run Docker. Verify
+that before debugging:
+
+```bash
+docker compose exec ns3 gdb --version
+```
+
+The selected editor tab does not affect the executable path. Obtain the exact
+path for another target with `./ns3 run TARGET --no-build --dry-run`, remove
+the `/workspace/ns-3/build/` prefix, and enter the remaining path at the VS
+Code prompt.
 
 ### Optional direct gdbserver transport
 
@@ -280,6 +328,62 @@ sudo ufw allow from MAC_IP to any port 2345 proto tcp
 
 Do not expose this port directly to the public Internet. Use a trusted LAN or
 VPN for direct access.
+
+### Connect VS Code on macOS directly to gdbserver
+
+The repository's `.vscode/launch.json` includes the
+`Remote gdbserver: ns-3 first` profile. It expects the matching executable and
+ns-3 shared libraries under the ignored local `remote-debug/` directory.
+
+After building on Ubuntu, export the symbol bundle from the container:
+
+```bash
+mkdir -p remote-debug
+docker compose cp \
+  ns3:/workspace/ns-3/build/examples/tutorial/ns3.47-first-debug \
+  remote-debug/ns3.47-first-debug
+docker compose cp \
+  ns3:/workspace/ns-3/build/lib \
+  remote-debug/lib
+```
+
+Transfer that directory to the repository checkout on macOS after every
+rebuild. For example, run this from the Mac:
+
+```bash
+rsync -av \
+  developer@UBUNTU_SERVER_IP:/path/to/ns-3.47-dev/remote-debug/ \
+  ./remote-debug/
+```
+
+Install the VS Code C/C++ extension and GDB on Apple Silicon macOS:
+
+```bash
+brew install gdb
+```
+
+The supplied profile uses `/opt/homebrew/bin/gdb`. Change
+`miDebuggerPath` in `.vscode/launch.json` when `which gdb` reports another
+path.
+
+Start gdbserver on Ubuntu:
+
+```bash
+docker compose exec ns3 \
+  gdbserver 0.0.0.0:2345 \
+  /workspace/ns-3/build/examples/tutorial/ns3.47-first-debug
+```
+
+In VS Code on the Mac:
+
+1. Open `examples/tutorial/first.cc` and set a breakpoint in `main()`.
+2. Select `Remote gdbserver: ns-3 first` in Run and Debug.
+3. Press F5.
+4. Enter `UBUNTU_SERVER_IP:2345` when prompted.
+
+The profile maps `/workspace/ns-3` to the local workspace, obtains Linux
+system libraries through gdbserver, and loads ns-3 shared-library symbols from
+`remote-debug/lib`. Restart gdbserver before each new session.
 
 Stop the optional transport with `Ctrl+C`. Stop the development environment
 without deleting its named build volumes:

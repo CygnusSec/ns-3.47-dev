@@ -4,11 +4,37 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
-            "name": "Debug ns-3 first in container",
+            "name": "Debug ns-3 program in container",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/workspace/ns-3/build/examples/tutorial/ns3.47-first-debug",
+            "program": "${workspaceFolder}/build/${input:ns3Executable}",
+            "args": [],
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "${workspaceFolder}/build/lib"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable GDB pretty-printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Remote SSH: debug through Docker exec",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/workspace/ns-3/build/${input:ns3Executable}",
             "args": [],
             "stopAtEntry": true,
             "cwd": "/workspace/ns-3",
@@ -20,12 +46,60 @@
             ],
             "externalConsole": false,
             "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb",
+            "sourceFileMap": {
+                "/workspace/ns-3": "${workspaceFolder}"
+            },
+            "pipeTransport": {
+                "pipeCwd": "${workspaceFolder}",
+                "pipeProgram": "docker",
+                "pipeArgs": [
+                    "compose",
+                    "exec",
+                    "-T",
+                    "ns3",
+                    "sh",
+                    "-c"
+                ],
+                "debuggerPath": "/usr/bin/gdb"
+            },
             "setupCommands": [
                 {
                     "description": "Enable GDB pretty-printing",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Remote gdbserver: ns-3 first",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/remote-debug/ns3.47-first-debug",
+            "args": [],
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/homebrew/bin/gdb",
+            "miDebuggerServerAddress": "${input:gdbServerAddress}",
+            "sourceFileMap": {
+                "/workspace/ns-3": "${workspaceFolder}"
+            },
+            "setupCommands": [
+                {
+                    "description": "Enable GDB pretty-printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Load Linux system libraries from gdbserver",
+                    "text": "-gdb-set sysroot remote:",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Load local ns-3 shared-library symbols",
+                    "text": "-gdb-set solib-search-path ${workspaceFolder}/remote-debug/lib",
+                    "ignoreFailures": false
                 }
             ]
         },
@@ -121,6 +195,18 @@
         }
     ],
     "inputs": [
+        {
+            "type": "promptString",
+            "id": "ns3Executable",
+            "description": "Executable path relative to the ns-3 build directory",
+            "default": "examples/tutorial/ns3.47-first-debug"
+        },
+        {
+            "type": "promptString",
+            "id": "gdbServerAddress",
+            "description": "Ubuntu gdbserver address (host:port)",
+            "default": "192.168.1.100:2345"
+        },
         {
             "type": "pickString",
             "id": "buildType",
