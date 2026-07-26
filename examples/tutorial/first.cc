@@ -12,6 +12,7 @@
 #include "ns3/network-module.h"
 // Import the point-to-point channel, network device, and its configuration helper.
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 
 // The simulation creates this simple two-node network topology:
 //
@@ -32,8 +33,13 @@ NS_LOG_COMPONENT_DEFINE("FirstScriptExample");
 int
 main(int argc, char* argv[])
 {
+    bool printAttributes = true;
+    bool tracePackets = true;
+
     // Create an ns-3 command-line parser and use this source filename in its help text.
     CommandLine cmd(__FILE__);
+    cmd.AddValue("printAttributes", "Print readable attributes for every model", printAttributes);
+    cmd.AddValue("tracePackets", "Print IPv4 packet forwarding actions", tracePackets);
 
     // Parse options such as "--help" and any arguments registered with cmd.AddValue().
     cmd.Parse(argc, argv);
@@ -116,8 +122,19 @@ main(int argc, char* argv[])
     // Stop the client at simulation time 10 seconds if it has not already completed.
     clientApps.Stop(Seconds(10));
 
+    SimulationDebugHelper::PrintTopology("ns-3 First Tutorial Topology", printAttributes);
+    std::cout << "\nUDP Echo flow: n0/" << interfaces.GetAddress(0) << " -> n1/"
+              << interfaces.GetAddress(1) << ":9\n";
+    if (tracePackets)
+    {
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
+
     // Execute scheduled events in timestamp order until no events remain.
     Simulator::Run();
+
+    std::cout << "\nSimulation summary: UDP Echo n0 -> n1 completed at "
+              << Simulator::Now().GetSeconds() << " s\n";
 
     // Release simulator-owned events and global state so the process exits cleanly.
     Simulator::Destroy();

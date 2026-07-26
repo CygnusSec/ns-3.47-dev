@@ -9,6 +9,7 @@
 #include "ns3/mobility-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 #include "ns3/ssid.h"
 #include "ns3/yans-wifi-helper.h"
 
@@ -36,6 +37,10 @@ main(int argc, char* argv[])
     uint32_t nCsma = 3;
     uint32_t nWifi = 3;
     bool tracing = false;
+    bool printTopology = true;
+    bool printAttributes = true;
+    bool printRoutes = true;
+    bool tracePackets = true;
 
     // Expose the defaults as ns-3 command-line options.
     CommandLine cmd(__FILE__);
@@ -43,6 +48,10 @@ main(int argc, char* argv[])
     cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
     cmd.AddValue("tracing", "Enable pcap tracing", tracing);
+    cmd.AddValue("printTopology", "Print all nodes, devices, channels, and addresses", printTopology);
+    cmd.AddValue("printAttributes", "Print readable attributes for every discovered model", printAttributes);
+    cmd.AddValue("printRoutes", "Print all IPv4 routing tables if true", printRoutes);
+    cmd.AddValue("tracePackets", "Print IPv4 packet forwarding actions if true", tracePackets);
 
     // Replace defaults with values supplied by the user.
     cmd.Parse(argc, argv);
@@ -56,6 +65,8 @@ main(int argc, char* argv[])
                   << std::endl;
         return 1;
     }
+    // At least one station is required because the final station hosts the client.
+    nWifi = nWifi == 0 ? 1 : nWifi;
 
     // Enable readable application events when verbose mode is selected.
     if (verbose)
@@ -163,8 +174,8 @@ main(int argc, char* argv[])
 
     // Both station and AP devices belong to the same Wi-Fi subnet.
     address.SetBase("10.1.3.0", "255.255.255.0");
-    address.Assign(staDevices);
-    address.Assign(apDevices);
+    Ipv4InterfaceContainer staInterfaces = address.Assign(staDevices);
+    Ipv4InterfaceContainer apInterfaces = address.Assign(apDevices);
 
     // Run the UDP Echo server on the last node of the CSMA LAN.
     UdpEchoServerHelper echoServer(9);
@@ -186,6 +197,43 @@ main(int argc, char* argv[])
     // Generate routes across Wi-Fi, point-to-point, and CSMA interfaces.
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
+    const uint32_t clientNodeId = wifiStaNodes.Get(nWifi - 1)->GetId();
+    const uint32_t serverNodeId = csmaNodes.Get(nCsma)->GetId();
+
+    if (printTopology)
+    {
+        SimulationDebugHelper::PrintTopology("ns-3 Third Tutorial Topology", printAttributes);
+    }
+
+    std::cout << "\n================ Third Tutorial Flow =================\n"
+              << "Network design : Wi-Fi -> point-to-point -> CSMA\n"
+              << "Wi-Fi SSID     : " << ssid << "\n"
+              << "Wi-Fi stations : " << nWifi << "\n"
+              << "CSMA hosts     : " << nCsma << " plus gateway n1\n"
+              << "Client         : n" << clientNodeId << "/"
+              << staInterfaces.GetAddress(nWifi - 1) << "\n"
+              << "Wi-Fi AP       : n" << wifiApNode.Get(0)->GetId() << "/"
+              << apInterfaces.GetAddress(0) << "\n"
+              << "P2P routers    : n" << p2pNodes.Get(0)->GetId() << "/"
+              << p2pInterfaces.GetAddress(0) << " <-> n" << p2pNodes.Get(1)->GetId() << "/"
+              << p2pInterfaces.GetAddress(1) << "\n"
+              << "Server         : n" << serverNodeId << "/"
+              << csmaInterfaces.GetAddress(nCsma) << ":9\n"
+              << "Request path   : n" << clientNodeId << " -> n0/AP -> n1/router -> n"
+              << serverNodeId << "\n"
+              << "Reply path     : n" << serverNodeId << " -> n1/router -> n0/AP -> n"
+              << clientNodeId << "\n"
+              << "======================================================\n";
+
+    if (printRoutes)
+    {
+        SimulationDebugHelper::PrintIpv4RoutingTablesAt(Seconds(0.5));
+    }
+    if (tracePackets)
+    {
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
+
     // Place an explicit upper bound on simulation duration.
     Simulator::Stop(Seconds(10));
 
@@ -200,6 +248,20 @@ main(int argc, char* argv[])
 
     // Execute the event queue and release simulator state.
     Simulator::Run();
+
+    std::cout << "\n================ Simulation Summary =================\n"
+              << "Finished at       : " << Simulator::Now().GetSeconds() << " s\n"
+              << "UDP Echo exchange : completed\n"
+              << "Request path      : n" << clientNodeId << " SEND -> n0 FORWARD -> n1 FORWARD -> n"
+              << serverNodeId << " DELIVER\n"
+              << "Reply path        : n" << serverNodeId << " SEND -> n1 FORWARD -> n0 FORWARD -> n"
+              << clientNodeId << " DELIVER\n"
+              << "Routing tables    : " << (printRoutes ? "printed" : "disabled") << "\n"
+              << "IPv4 packet trace : " << (tracePackets ? "printed above" : "disabled") << "\n"
+              << "PCAP traces       : " << (tracing ? "written with prefix third" : "disabled")
+              << "\n"
+              << "=====================================================\n";
+
     Simulator::Destroy();
     return 0;
 }

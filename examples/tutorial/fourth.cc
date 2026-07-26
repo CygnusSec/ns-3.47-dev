@@ -63,7 +63,8 @@ void
 IntTrace(int32_t oldValue, int32_t newValue)
 {
     // Print the state transition observed through the trace source.
-    std::cout << "Traced " << oldValue << " to " << newValue << std::endl;
+    std::cout << "[TRACE] source=MyInteger old=" << oldValue << " new=" << newValue
+              << " delta=" << newValue - oldValue << std::endl;
 }
 
 // Build one object, connect its trace source, and trigger a value change.
@@ -73,11 +74,23 @@ main(int argc, char* argv[])
     // Allocate MyObject using ns-3 reference-counted object ownership.
     Ptr<MyObject> myObject = CreateObject<MyObject>();
 
+    std::cout << "================ Fourth Tutorial Trace Model ================\n"
+              << "Object model : " << myObject->GetInstanceTypeId().GetName() << "\n"
+              << "Base model   : " << myObject->GetInstanceTypeId().GetParent().GetName() << "\n"
+              << "Trace source : MyInteger\n"
+              << "Value type   : int32_t\n"
+              << "Initial value: " << myObject->m_myInt.Get() << "\n"
+              << "Callback     : IntTrace(oldValue, newValue)\n";
+
     // Connect IntTrace to MyInteger without adding a configuration-path argument.
     myObject->TraceConnectWithoutContext("MyInteger", MakeCallback(&IntTrace));
 
     // Change the traced value, which immediately calls IntTrace(oldValue, 1234).
     myObject->m_myInt = 1234;
+
+    std::cout << "Final value  : " << myObject->m_myInt.Get() << "\n"
+              << "Result       : callback connected and invoked synchronously\n"
+              << "=============================================================\n";
 
     // End the process successfully; no event loop is needed for this synchronous trace.
     return 0;

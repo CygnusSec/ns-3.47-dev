@@ -9,6 +9,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 #include "ns3/stats-module.h"
 
 #include <fstream>
@@ -90,10 +91,14 @@ main(int argc, char* argv[])
 {
     // Use IPv4 by default; --useIpv6=true switches all address/probe settings.
     bool useV6 = false;
+    bool printAttributes = true;
+    bool tracePackets = false;
 
     // Register and parse the address-family option.
     CommandLine cmd(__FILE__);
     cmd.AddValue("useIpv6", "Use Ipv6", useV6);
+    cmd.AddValue("printAttributes", "Print readable attributes for every model", printAttributes);
+    cmd.AddValue("tracePackets", "Print IP packet forwarding actions", tracePackets);
     cmd.Parse(argc, argv);
 
     // Create and connect the TCP sender and receiver nodes.
@@ -206,9 +211,32 @@ main(int argc, char* argv[])
     // probe output trace source ("OutputBytes") to write.
     fileHelper.WriteProbe(probeType, tracePath, "OutputBytes");
 
+    SimulationDebugHelper::PrintTopology("ns-3 Seventh Tutorial Statistics Topology",
+                                         printAttributes);
+    std::cout << "\nTCP statistics flow: n0 -> n1:" << sinkPort
+              << "\nAddress family: " << (useV6 ? "IPv6" : "IPv4")
+              << "\nTrace outputs: seventh.cwnd, seventh.pcap, "
+                 "seventh-packet-byte-count.dat/.plt\n";
+    if (tracePackets)
+    {
+        if (useV6)
+        {
+            SimulationDebugHelper::EnableIpv6PacketFlowTracing();
+        }
+        else
+        {
+            SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+        }
+    }
+
     // Run all probes, aggregators, and traffic for 20 simulated seconds.
     Simulator::Stop(Seconds(20));
     Simulator::Run();
+
+    Ptr<PacketSink> sink = DynamicCast<PacketSink>(sinkApps.Get(0));
+    std::cout << "\nSimulation summary: finished at " << Simulator::Now().GetSeconds()
+              << " s, TCP sink received " << sink->GetTotalRx()
+              << " bytes using " << (useV6 ? "IPv6" : "IPv4") << "\n";
     Simulator::Destroy();
 
     return 0;

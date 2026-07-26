@@ -9,6 +9,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 
 #include <fstream>
 
@@ -80,8 +81,13 @@ RxDrop(Ptr<const Packet> p)
 int
 main(int argc, char* argv[])
 {
+    bool printAttributes = true;
+    bool tracePackets = false;
+
     // Parse standard ns-3 command-line arguments.
     CommandLine cmd(__FILE__);
+    cmd.AddValue("printAttributes", "Print readable attributes for every model", printAttributes);
+    cmd.AddValue("tracePackets", "Print IPv4 TCP forwarding actions", tracePackets);
     cmd.Parse(argc, argv);
 
     // In the following three lines, TCP NewReno is used as the congestion
@@ -145,9 +151,23 @@ main(int argc, char* argv[])
     // Observe frames discarded by the receiving point-to-point device.
     devices.Get(1)->TraceConnectWithoutContext("PhyRxDrop", MakeCallback(&RxDrop));
 
+    SimulationDebugHelper::PrintTopology("ns-3 Fifth Tutorial TCP Topology", printAttributes);
+    std::cout << "\nTCP flow: n0/" << interfaces.GetAddress(0) << " -> n1/"
+              << interfaces.GetAddress(1) << ":" << sinkPort
+              << "\nTraffic: 1000 packets x 1040 bytes at 1 Mbps"
+              << "\nError rate: 0.00001; congestion algorithm: TcpNewReno\n";
+    if (tracePackets)
+    {
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
+
     // Run for at most 20 simulated seconds and release global state afterward.
     Simulator::Stop(Seconds(20));
     Simulator::Run();
+
+    Ptr<PacketSink> sink = DynamicCast<PacketSink>(sinkApps.Get(0));
+    std::cout << "\nSimulation summary: finished at " << Simulator::Now().GetSeconds()
+              << " s, TCP sink received " << sink->GetTotalRx() << " bytes\n";
     Simulator::Destroy();
 
     return 0;

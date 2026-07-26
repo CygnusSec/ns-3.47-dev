@@ -10,6 +10,7 @@
 #include "ns3/ipv6.h"
 #include "ns3/ipv6-l3-protocol.h"
 #include "ns3/ipv6-list-routing.h"
+#include "ns3/mobility-model.h"
 
 #include <iostream>
 #include <map>
@@ -202,6 +203,22 @@ SimulationDebugHelper::PrintTopology(const std::string& title, bool printAttribu
                   << "  System ID    : " << node->GetSystemId() << "\n"
                   << "  Applications : " << node->GetNApplications() << "\n"
                   << "  Devices      : " << node->GetNDevices() << "\n";
+
+        const Ptr<MobilityModel> mobility = node->GetObject<MobilityModel>();
+        if (mobility)
+        {
+            const Vector position = mobility->GetPosition();
+            const Vector velocity = mobility->GetVelocity();
+            std::cout << "  Mobility     : " << mobility->GetInstanceTypeId().GetName() << "\n"
+                      << "    position   : (" << position.x << ", " << position.y << ", "
+                      << position.z << ")\n"
+                      << "    velocity   : (" << velocity.x << ", " << velocity.y << ", "
+                      << velocity.z << ")\n";
+            if (printAttributes)
+            {
+                PrintObjectAttributes(mobility, "    attribute.");
+            }
+        }
 
         if (ipv4 && ipv4->GetRoutingProtocol())
         {

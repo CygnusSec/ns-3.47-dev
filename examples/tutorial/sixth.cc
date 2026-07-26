@@ -9,6 +9,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 
 #include <fstream>
 
@@ -85,8 +86,13 @@ RxDrop(Ptr<PcapFileWrapper> file, Ptr<const Packet> p)
 int
 main(int argc, char* argv[])
 {
+    bool printAttributes = true;
+    bool tracePackets = false;
+
     // Parse standard ns-3 command-line arguments.
     CommandLine cmd(__FILE__);
+    cmd.AddValue("printAttributes", "Print readable attributes for every model", printAttributes);
+    cmd.AddValue("tracePackets", "Print IPv4 TCP forwarding actions", tracePackets);
     cmd.Parse(argc, argv);
 
     // Create two nodes joined by a configured point-to-point channel.
@@ -144,9 +150,23 @@ main(int argc, char* argv[])
         pcapHelper.CreateFile("sixth.pcap", std::ios::out, PcapHelper::DLT_PPP);
     devices.Get(1)->TraceConnectWithoutContext("PhyRxDrop", MakeBoundCallback(&RxDrop, file));
 
+    SimulationDebugHelper::PrintTopology("ns-3 Sixth Tutorial TCP Topology", printAttributes);
+    std::cout << "\nTCP flow: n0/" << interfaces.GetAddress(0) << " -> n1/"
+              << interfaces.GetAddress(1) << ":" << sinkPort
+              << "\nTrace outputs: sixth.cwnd and sixth.pcap\n";
+    if (tracePackets)
+    {
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
+
     // Execute no later than 20 seconds, then clean up simulator resources.
     Simulator::Stop(Seconds(20));
     Simulator::Run();
+
+    Ptr<PacketSink> sink = DynamicCast<PacketSink>(sinkApps.Get(0));
+    std::cout << "\nSimulation summary: finished at " << Simulator::Now().GetSeconds()
+              << " s, TCP sink received " << sink->GetTotalRx()
+              << " bytes; congestion/drop traces written to disk\n";
     Simulator::Destroy();
 
     return 0;

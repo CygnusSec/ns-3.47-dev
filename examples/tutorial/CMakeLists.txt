@@ -14,6 +14,7 @@ build_example(
     ${libpoint-to-point}
     ${libinternet}
     ${libapplications}
+    ${libdebug-tools}
 )
 
 # Build the routed point-to-point plus CSMA example.
@@ -40,6 +41,7 @@ build_example(
     ${libwifi}
     ${libinternet}
     ${libapplications}
+    ${libdebug-tools}
 )
 
 # Build the trace-source example; its required APIs are all in core.
@@ -59,6 +61,7 @@ build_example(
     ${libpoint-to-point}
     ${libinternet}
     ${libapplications}
+    ${libdebug-tools}
 )
 
 # Build the TCP file-output example and reuse TutorialApp.
@@ -71,6 +74,7 @@ build_example(
     ${libpoint-to-point}
     ${libinternet}
     ${libapplications}
+    ${libdebug-tools}
 )
 
 # Build the statistics-helper example and add the stats module dependency.
@@ -84,4 +88,5 @@ build_example(
     ${libpoint-to-point}
     ${libinternet}
     ${libapplications}
+    ${libdebug-tools}
 )
