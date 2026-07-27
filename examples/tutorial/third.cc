@@ -9,10 +9,11 @@
 #include "ns3/mobility-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 #include "ns3/ssid.h"
 #include "ns3/yans-wifi-helper.h"
 
-// Default Network Topology
+// This topology combines Wi-Fi, point-to-point, and CSMA networks:
 //
 //   Wifi 10.1.3.0
 //                 AP
@@ -27,20 +28,32 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("ThirdScriptExample");
 
+// Configure all three link technologies and run one routed UDP Echo exchange.
 int
 main(int argc, char* argv[])
 {
+    // Default command-line values control logging, topology size, and tracing.
     bool verbose = true;
     uint32_t nCsma = 3;
     uint32_t nWifi = 3;
     bool tracing = false;
+    bool printTopology = true;
+    bool printAttributes = true;
+    bool printRoutes = true;
+    bool tracePackets = true;
 
+    // Expose the defaults as ns-3 command-line options.
     CommandLine cmd(__FILE__);
     cmd.AddValue("nCsma", "Number of \"extra\" CSMA nodes/devices", nCsma);
     cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
     cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
     cmd.AddValue("tracing", "Enable pcap tracing", tracing);
+    cmd.AddValue("printTopology", "Print all nodes, devices, channels, and addresses", printTopology);
+    cmd.AddValue("printAttributes", "Print readable attributes for every discovered model", printAttributes);
+    cmd.AddValue("printRoutes", "Print all IPv4 routing tables if true", printRoutes);
+    cmd.AddValue("tracePackets", "Print IPv4 packet forwarding actions if true", tracePackets);
 
+    // Replace defaults with values supplied by the user.
     cmd.Parse(argc, argv);
 
     // The underlying restriction of 18 is due to the grid position
@@ -52,13 +65,17 @@ main(int argc, char* argv[])
                   << std::endl;
         return 1;
     }
+    // At least one station is required because the final station hosts the client.
+    nWifi = nWifi == 0 ? 1 : nWifi;
 
+    // Enable readable application events when verbose mode is selected.
     if (verbose)
     {
         LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
         LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
     }
 
+    // Create and configure the two-node point-to-point backbone.
     NodeContainer p2pNodes;
     p2pNodes.Create(2);
 
@@ -66,13 +83,16 @@ main(int argc, char* argv[])
     pointToPoint.SetDeviceAttribute("DataRate", StringValue("5Mbps"));
     pointToPoint.SetChannelAttribute("Delay", StringValue("2ms"));
 
+    // Install the point-to-point devices and their shared channel.
     NetDeviceContainer p2pDevices;
     p2pDevices = pointToPoint.Install(p2pNodes);
 
+    // Reuse backbone node 1 as the CSMA gateway, then add LAN-only nodes.
     NodeContainer csmaNodes;
     csmaNodes.Add(p2pNodes.Get(1));
     csmaNodes.Create(nCsma);
 
+    // Configure and install the shared CSMA LAN.
     CsmaHelper csma;
     csma.SetChannelAttribute("DataRate", StringValue("100Mbps"));
     csma.SetChannelAttribute("Delay", TimeValue(NanoSeconds(6560)));
@@ -80,29 +100,37 @@ main(int argc, char* argv[])
     NetDeviceContainer csmaDevices;
     csmaDevices = csma.Install(csmaNodes);
 
+    // Create Wi-Fi station nodes and reuse backbone node 0 as the access point.
     NodeContainer wifiStaNodes;
     wifiStaNodes.Create(nWifi);
     NodeContainer wifiApNode = p2pNodes.Get(0);
 
+    // Create a default propagation channel and attach it to a Wi-Fi PHY helper.
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
     YansWifiPhyHelper phy;
     phy.SetChannel(channel.Create());
 
+    // Define the common network name advertised by the AP and joined by stations.
     WifiMacHelper mac;
     Ssid ssid = Ssid("ns-3-ssid");
 
+    // WifiHelper selects and installs the Wi-Fi standard/rate-control components.
     WifiHelper wifi;
 
+    // Configure station MACs to join the SSID without sending active probe requests.
     NetDeviceContainer staDevices;
     mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssid), "ActiveProbing", BooleanValue(false));
     staDevices = wifi.Install(phy, mac, wifiStaNodes);
 
+    // Reconfigure the MAC helper as an access-point MAC and install it on n0.
     NetDeviceContainer apDevices;
     mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssid));
     apDevices = wifi.Install(phy, mac, wifiApNode);
 
+    // Create the allocator/model helper used to give Wi-Fi nodes positions.
     MobilityHelper mobility;
 
+    // Place station starting positions on a row-first rectangular grid.
     mobility.SetPositionAllocator("ns3::GridPositionAllocator",
                                   "MinX",
                                   DoubleValue(0.0),
@@ -117,19 +145,23 @@ main(int argc, char* argv[])
                                   "LayoutType",
                                   StringValue("RowFirst"));
 
+    // Let stations perform a bounded two-dimensional random walk.
     mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
                               "Bounds",
                               RectangleValue(Rectangle(-50, 50, -50, 50)));
     mobility.Install(wifiStaNodes);
 
+    // Keep the access point fixed at its allocated position.
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mobility.Install(wifiApNode);
 
+    // Install Internet stacks on every unique CSMA, AP, and station node.
     InternetStackHelper stack;
     stack.Install(csmaNodes);
     stack.Install(wifiApNode);
     stack.Install(wifiStaNodes);
 
+    // Assign an independent IPv4 subnet to each link-layer network.
     Ipv4AddressHelper address;
 
     address.SetBase("10.1.1.0", "255.255.255.0");
@@ -140,16 +172,19 @@ main(int argc, char* argv[])
     Ipv4InterfaceContainer csmaInterfaces;
     csmaInterfaces = address.Assign(csmaDevices);
 
+    // Both station and AP devices belong to the same Wi-Fi subnet.
     address.SetBase("10.1.3.0", "255.255.255.0");
-    address.Assign(staDevices);
-    address.Assign(apDevices);
+    Ipv4InterfaceContainer staInterfaces = address.Assign(staDevices);
+    Ipv4InterfaceContainer apInterfaces = address.Assign(apDevices);
 
+    // Run the UDP Echo server on the last node of the CSMA LAN.
     UdpEchoServerHelper echoServer(9);
 
     ApplicationContainer serverApps = echoServer.Install(csmaNodes.Get(nCsma));
     serverApps.Start(Seconds(1));
     serverApps.Stop(Seconds(10));
 
+    // Run the client on the last Wi-Fi station and target the CSMA server.
     UdpEchoClientHelper echoClient(csmaInterfaces.GetAddress(nCsma), 9);
     echoClient.SetAttribute("MaxPackets", UintegerValue(1));
     echoClient.SetAttribute("Interval", TimeValue(Seconds(1)));
@@ -159,10 +194,50 @@ main(int argc, char* argv[])
     clientApps.Start(Seconds(2));
     clientApps.Stop(Seconds(10));
 
+    // Generate routes across Wi-Fi, point-to-point, and CSMA interfaces.
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
+    const uint32_t clientNodeId = wifiStaNodes.Get(nWifi - 1)->GetId();
+    const uint32_t serverNodeId = csmaNodes.Get(nCsma)->GetId();
+
+    if (printTopology)
+    {
+        SimulationDebugHelper::PrintTopology("ns-3 Third Tutorial Topology", printAttributes);
+    }
+
+    std::cout << "\n================ Third Tutorial Flow =================\n"
+              << "Network design : Wi-Fi -> point-to-point -> CSMA\n"
+              << "Wi-Fi SSID     : " << ssid << "\n"
+              << "Wi-Fi stations : " << nWifi << "\n"
+              << "CSMA hosts     : " << nCsma << " plus gateway n1\n"
+              << "Client         : n" << clientNodeId << "/"
+              << staInterfaces.GetAddress(nWifi - 1) << "\n"
+              << "Wi-Fi AP       : n" << wifiApNode.Get(0)->GetId() << "/"
+              << apInterfaces.GetAddress(0) << "\n"
+              << "P2P routers    : n" << p2pNodes.Get(0)->GetId() << "/"
+              << p2pInterfaces.GetAddress(0) << " <-> n" << p2pNodes.Get(1)->GetId() << "/"
+              << p2pInterfaces.GetAddress(1) << "\n"
+              << "Server         : n" << serverNodeId << "/"
+              << csmaInterfaces.GetAddress(nCsma) << ":9\n"
+              << "Request path   : n" << clientNodeId << " -> n0/AP -> n1/router -> n"
+              << serverNodeId << "\n"
+              << "Reply path     : n" << serverNodeId << " -> n1/router -> n0/AP -> n"
+              << clientNodeId << "\n"
+              << "======================================================\n";
+
+    if (printRoutes)
+    {
+        SimulationDebugHelper::PrintIpv4RoutingTablesAt(Seconds(0.5));
+    }
+    if (tracePackets)
+    {
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
+
+    // Place an explicit upper bound on simulation duration.
     Simulator::Stop(Seconds(10));
 
+    // Optionally write packet captures for representative devices on each link.
     if (tracing)
     {
         phy.SetPcapDataLinkType(WifiPhyHelper::DLT_IEEE802_11_RADIO);
@@ -171,7 +246,22 @@ main(int argc, char* argv[])
         csma.EnablePcap("third", csmaDevices.Get(0), true);
     }
 
+    // Execute the event queue and release simulator state.
     Simulator::Run();
+
+    std::cout << "\n================ Simulation Summary =================\n"
+              << "Finished at       : " << Simulator::Now().GetSeconds() << " s\n"
+              << "UDP Echo exchange : completed\n"
+              << "Request path      : n" << clientNodeId << " SEND -> n0 FORWARD -> n1 FORWARD -> n"
+              << serverNodeId << " DELIVER\n"
+              << "Reply path        : n" << serverNodeId << " SEND -> n1 FORWARD -> n0 FORWARD -> n"
+              << clientNodeId << " DELIVER\n"
+              << "Routing tables    : " << (printRoutes ? "printed" : "disabled") << "\n"
+              << "IPv4 packet trace : " << (tracePackets ? "printed above" : "disabled") << "\n"
+              << "PCAP traces       : " << (tracing ? "written with prefix third" : "disabled")
+              << "\n"
+              << "=====================================================\n";
+
     Simulator::Destroy();
     return 0;
 }

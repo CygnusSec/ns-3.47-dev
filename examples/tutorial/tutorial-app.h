@@ -2,16 +2,22 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
+// Prevent this header from being included more than once per translation unit.
 #ifndef TUTORIAL_APP_H
 #define TUTORIAL_APP_H
 
+// Import time, data-rate, TypeId, and other core definitions.
 #include "ns3/core-module.h"
+// Import Socket and Internet address support.
 #include "ns3/internet-module.h"
+// Import Application, Packet, and network base types.
 #include "ns3/network-module.h"
 
+// Keep TutorialApp in the same namespace as the rest of ns-3.
 namespace ns3
 {
 
+// Declare Application before the full class definition is needed.
 class Application;
 
 /**
@@ -20,7 +26,10 @@ class Application;
 class TutorialApp : public Application
 {
   public:
+    // Initialize a new, inactive traffic generator.
     TutorialApp();
+
+    // Release application-owned references when the object is destroyed.
     ~TutorialApp() override;
 
     /**
@@ -44,7 +53,10 @@ class TutorialApp : public Application
                DataRate dataRate);
 
   private:
+    // Called automatically by Application at the configured start time.
     void StartApplication() override;
+
+    // Called automatically by Application at the configured stop time.
     void StopApplication() override;
 
     /// Schedule a new transmission.
@@ -52,16 +64,16 @@ class TutorialApp : public Application
     /// Send a packet.
     void SendPacket();
 
-    Ptr<Socket> m_socket;   //!< The transmission socket.
-    Address m_peer;         //!< The destination address.
-    uint32_t m_packetSize;  //!< The packet size.
-    uint32_t m_nPackets;    //!< The number of packets to send.
-    DataRate m_dataRate;    //!< The data rate to use.
-    EventId m_sendEvent;    //!< Send event.
-    bool m_running;         //!< True if the application is running.
-    uint32_t m_packetsSent; //!< The number of packets sent.
+    Ptr<Socket> m_socket;   //!< Socket used to transmit every packet.
+    Address m_peer;         //!< Remote IP address and transport-layer port.
+    uint32_t m_packetSize;  //!< Application payload size in bytes.
+    uint32_t m_nPackets;    //!< Maximum number of packets to transmit.
+    DataRate m_dataRate;    //!< Rate used to calculate time between packets.
+    EventId m_sendEvent;    //!< Handle for the next scheduled transmission.
+    bool m_running;         //!< Whether the application may schedule more work.
+    uint32_t m_packetsSent; //!< Number of packets transmitted so far.
 };
 
-} // namespace ns3
+} // namespace ns3: finish the ns-3 declarations.
 
-#endif /* TUTORIAL_APP_H */
+#endif /* TUTORIAL_APP_H: finish the multiple-inclusion guard. */

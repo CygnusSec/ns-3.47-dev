@@ -36,6 +36,7 @@ TAGS
 
 build-dir/
 build/
+remote-debug/
 /.cproject
 /.project
 

@@ -9,6 +9,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 
 #include <fstream>
 
@@ -60,6 +61,7 @@ NS_LOG_COMPONENT_DEFINE("FifthScriptExample");
 static void
 CwndChange(uint32_t oldCwnd, uint32_t newCwnd)
 {
+    // Print simulated time and the new TCP congestion-window size.
     NS_LOG_UNCOND(Simulator::Now().GetSeconds() << "\t" << newCwnd);
 }
 
@@ -71,13 +73,21 @@ CwndChange(uint32_t oldCwnd, uint32_t newCwnd)
 static void
 RxDrop(Ptr<const Packet> p)
 {
+    // Report when the receiver's error model drops a frame at the PHY layer.
     NS_LOG_UNCOND("RxDrop at " << Simulator::Now().GetSeconds());
 }
 
+// Build a lossy TCP flow and observe congestion-window and receive-drop traces.
 int
 main(int argc, char* argv[])
 {
+    bool printAttributes = true;
+    bool tracePackets = false;
+
+    // Parse standard ns-3 command-line arguments.
     CommandLine cmd(__FILE__);
+    cmd.AddValue("printAttributes", "Print readable attributes for every model", printAttributes);
+    cmd.AddValue("tracePackets", "Print IPv4 TCP forwarding actions", tracePackets);
     cmd.Parse(argc, argv);
 
     // In the following three lines, TCP NewReno is used as the congestion
@@ -91,9 +101,11 @@ main(int argc, char* argv[])
     Config::SetDefault("ns3::TcpL4Protocol::RecoveryType",
                        TypeIdValue(TypeId::LookupByName("ns3::TcpClassicRecovery")));
 
+    // Create the TCP sender and receiver nodes.
     NodeContainer nodes;
     nodes.Create(2);
 
+    // Configure and install the 5 Mbps, 2 ms point-to-point link.
     PointToPointHelper pointToPoint;
     pointToPoint.SetDeviceAttribute("DataRate", StringValue("5Mbps"));
     pointToPoint.SetChannelAttribute("Delay", StringValue("2ms"));
@@ -101,10 +113,12 @@ main(int argc, char* argv[])
     NetDeviceContainer devices;
     devices = pointToPoint.Install(nodes);
 
+    // Randomly corrupt incoming frames at node 1 to demonstrate TCP recovery.
     Ptr<RateErrorModel> em = CreateObject<RateErrorModel>();
     em->SetAttribute("ErrorRate", DoubleValue(0.00001));
     devices.Get(1)->SetAttribute("ReceiveErrorModel", PointerValue(em));
 
+    // Install TCP/IP and assign one /30 IPv4 point-to-point subnet.
     InternetStackHelper stack;
     stack.Install(nodes);
 
@@ -112,27 +126,48 @@ main(int argc, char* argv[])
     address.SetBase("10.1.1.0", "255.255.255.252");
     Ipv4InterfaceContainer interfaces = address.Assign(devices);
 
+    // Define the receiver's TCP port and the sender's destination address.
     uint16_t sinkPort = 8080;
     Address sinkAddress(InetSocketAddress(interfaces.GetAddress(1), sinkPort));
+    // Listen on all node-1 IPv4 interfaces using a TCP PacketSink.
     PacketSinkHelper packetSinkHelper("ns3::TcpSocketFactory",
                                       InetSocketAddress(Ipv4Address::GetAny(), sinkPort));
     ApplicationContainer sinkApps = packetSinkHelper.Install(nodes.Get(1));
     sinkApps.Start(Seconds(0.));
     sinkApps.Stop(Seconds(20.));
 
+    // Create the sender socket explicitly so its congestion trace is accessible.
     Ptr<Socket> ns3TcpSocket = Socket::CreateSocket(nodes.Get(0), TcpSocketFactory::GetTypeId());
+    // Invoke CwndChange whenever TCP changes its congestion window.
     ns3TcpSocket->TraceConnectWithoutContext("CongestionWindow", MakeCallback(&CwndChange));
 
+    // Configure TutorialApp to send 1000 packets of 1040 bytes at 1 Mbps.
     Ptr<TutorialApp> app = CreateObject<TutorialApp>();
     app->Setup(ns3TcpSocket, sinkAddress, 1040, 1000, DataRate("1Mbps"));
     nodes.Get(0)->AddApplication(app);
     app->SetStartTime(Seconds(1.));
     app->SetStopTime(Seconds(20.));
 
+    // Observe frames discarded by the receiving point-to-point device.
     devices.Get(1)->TraceConnectWithoutContext("PhyRxDrop", MakeCallback(&RxDrop));
 
+    SimulationDebugHelper::PrintTopology("ns-3 Fifth Tutorial TCP Topology", printAttributes);
+    std::cout << "\nTCP flow: n0/" << interfaces.GetAddress(0) << " -> n1/"
+              << interfaces.GetAddress(1) << ":" << sinkPort
+              << "\nTraffic: 1000 packets x 1040 bytes at 1 Mbps"
+              << "\nError rate: 0.00001; congestion algorithm: TcpNewReno\n";
+    if (tracePackets)
+    {
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
+
+    // Run for at most 20 simulated seconds and release global state afterward.
     Simulator::Stop(Seconds(20));
     Simulator::Run();
+
+    Ptr<PacketSink> sink = DynamicCast<PacketSink>(sinkApps.Get(0));
+    std::cout << "\nSimulation summary: finished at " << Simulator::Now().GetSeconds()
+              << " s, TCP sink received " << sink->GetTotalRx() << " bytes\n";
     Simulator::Destroy();
 
     return 0;
