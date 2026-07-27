@@ -1654,6 +1654,12 @@ examples/tutorial/second.cc
 examples/tutorial/third.cc
 ```
 
+Use the per-file English guides in
+[`examples/tutorial/docs/`](examples/tutorial/docs/README.md) while reading
+these programs. The guide set covers every C++ tutorial source from
+`hello-simulator.cc` through `seventh.cc`, including the reusable
+`tutorial-app.cc`.
+
 Goals:
 
 - Create nodes and links
