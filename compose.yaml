@@ -1,4 +1,39 @@
 services:
+  code-server:
+    image: ghcr.io/coder/code-server:latest
+    container_name: code-server
+    hostname: code-server
+
+    restart: unless-stopped
+    init: true
+
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      PASSWORD: "${CODE_SERVER_PASSWORD}"
+      DEFAULT_WORKSPACE: /workspace/ns-3
+
+    working_dir: /workspace/ns-3
+
+    ports:
+      # Chỉ expose localhost nếu dùng Nginx/reverse proxy.
+      - "127.0.0.1:${CODE_SERVER_PORT:-8080}:8080"
+
+    volumes:
+      # Source ns-3 hiện tại.
+      - .:/workspace/ns-3
+
+      # Code-server configuration and extensions.
+      - code-server-config:/home/coder/.config
+      - code-server-data:/home/coder/.local/share/code-server
+
+      # Mount build artifacts để code-server thấy binary khi debug GUI.
+      - ns3-build:/workspace/ns-3/build
+      - ns3-cmake-cache:/workspace/ns-3/cmake-cache
+      - ns3-clion-cache-mask:/workspace/ns-3/cmake-build-debug
+
+    networks:
+      - dev-network
+
   ns3:
     build:
       context: .
@@ -25,9 +60,17 @@ services:
       - ns3-build:/workspace/ns-3/build
       - ns3-cmake-cache:/workspace/ns-3/cmake-cache
       - ns3-clion-cache-mask:/workspace/ns-3/cmake-build-debug
+    networks:
+      - dev-network
 
 volumes:
+  code-server-config:
+  code-server-data:
   ns3-ccache:
   ns3-build:
   ns3-cmake-cache:
   ns3-clion-cache-mask:
+  
+networks:
+  dev-network:
+    name: ns3-dev-network
