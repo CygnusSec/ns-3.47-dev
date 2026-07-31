@@ -1,35 +1,35 @@
 services:
-code-server:
-  build:
-    context: .
-    dockerfile: Dockerfile.code-server
+  code-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.code-server
 
-  image: code-server-ns3:local
-  container_name: code-server
-  hostname: code-server
+    image: code-server-ns3:local
+    container_name: code-server
+    hostname: code-server
 
-  restart: unless-stopped
-  init: true
+    restart: unless-stopped
+    init: true
 
-  environment:
-    TZ: Asia/Ho_Chi_Minh
-    PASSWORD: "${CODE_SERVER_PASSWORD}"
-    DEFAULT_WORKSPACE: /workspace/ns-3
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      PASSWORD: "${CODE_SERVER_PASSWORD}"
+      DEFAULT_WORKSPACE: /workspace/ns-3
 
-  working_dir: /workspace/ns-3
+    working_dir: /workspace/ns-3
 
-  ports:
-    - "${CODE_SERVER_PORT:-8080}:8080"
+    ports:
+      - "${CODE_SERVER_PORT:-8080}:8080"
 
-  volumes:
-    - .:/workspace/ns-3
-    - code-server-config:/home/coder/.config
-    - code-server-data:/home/coder/.local/share/code-server
-    - ns3-build:/workspace/ns-3/build
-    - ns3-cmake-cache:/workspace/ns-3/cmake-cache
+    volumes:
+      - .:/workspace/ns-3
+      - code-server-config:/home/coder/.config
+      - code-server-data:/home/coder/.local/share/code-server
+      - ns3-build:/workspace/ns-3/build
+      - ns3-cmake-cache:/workspace/ns-3/cmake-cache
 
-  networks:
-    - dev-network
+    networks:
+      - dev-network
 
   ns3:
     build:
