@@ -93,10 +93,4 @@ WORKDIR /workspace/ns-3
 
 ENTRYPOINT ["/usr/local/bin/ns3-code-server-entrypoint"]
 
-CMD [
-    "code-server",
-    "--bind-addr", "0.0.0.0:8080",
-    "--auth", "password",
-    "--disable-telemetry",
-    "/workspace/ns-3"
-]
+CMD ["code-server", "--bind-addr", "0.0.0.0:8080", "--auth", "password", "--disable-telemetry", "/workspace/ns-3"]
