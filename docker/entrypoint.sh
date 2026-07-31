@@ -1,20 +1,29 @@
 #!/bin/sh
 set -eu
 
-cd /workspace/ns-3
+NS3_DIR="${NS3_DIR:-/workspace/ns-3}"
 
-# Compose keeps Linux build artifacts in named volumes. Configure when either
-# the Linux lock file or CMake cache is absent; a macOS/Windows lock file is not
-# valid for this container.
-if [ "${NS3_SKIP_BUILD:-0}" != "1" ] \
-    && { [ ! -f .lock-ns3_linux_build ] || [ ! -f cmake-cache/CMakeCache.txt ]; }; then
-    # NS3_CONFIGURE_ARGS is deliberately split into arguments here.
-    # shellcheck disable=SC2086
-    ./ns3 configure ${NS3_CONFIGURE_ARGS}
-fi
+if [ -x "${NS3_DIR}/ns3" ]; then
+    cd "${NS3_DIR}"
 
-if [ "${NS3_BUILD_ALL:-0}" = "1" ]; then
-    ./ns3 build
+    if [ "${NS3_SKIP_CONFIGURE:-0}" != "1" ] \
+        && { [ ! -f .lock-ns3_linux_build ] \
+        || [ ! -f cmake-cache/CMakeCache.txt ]; }; then
+
+        echo "[entrypoint] Configuring ns-3"
+
+        # NS3_CONFIGURE_ARGS intentionally expands into multiple arguments.
+        # shellcheck disable=SC2086
+        ./ns3 configure ${NS3_CONFIGURE_ARGS}
+    fi
+
+    if [ "${NS3_BUILD_ALL:-0}" = "1" ]; then
+        echo "[entrypoint] Building all ns-3 targets"
+        ./ns3 build
+    fi
+else
+    echo "[entrypoint] ns-3 source not found at ${NS3_DIR}"
+    echo "[entrypoint] Starting code-server without configuring ns-3"
 fi
 
 exec "$@"

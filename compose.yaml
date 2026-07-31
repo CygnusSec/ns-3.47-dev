@@ -1,32 +1,60 @@
 services:
-  ns3:
+  code-server:
     build:
       context: .
+      dockerfile: Dockerfile
       args:
-        NS3_UID: "${NS3_UID:-1000}"
-        NS3_GID: "${NS3_GID:-1000}"
-    image: ns3-47-dev:local
+        USER_UID: "${NS3_UID:-1000}"
+        USER_GID: "${NS3_GID:-1000}"
+
+    image: ns3-development:local
+    container_name: ns3-development
+    hostname: ns3-development
+
+    restart: unless-stopped
     init: true
-    stdin_open: true
-    tty: true
+
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      PASSWORD: "${CODE_SERVER_PASSWORD}"
+
+      NS3_DIR: /workspace/ns-3
+      NS3_SKIP_CONFIGURE: "${NS3_SKIP_CONFIGURE:-0}"
+      NS3_BUILD_ALL: "${NS3_BUILD_ALL:-0}"
+
+      LD_LIBRARY_PATH: /workspace/ns-3/build/lib
+
     working_dir: /workspace/ns-3
-    command: ["sleep", "infinity"]
-    cap_add:
-      - SYS_PTRACE
-    security_opt:
-      - seccomp:unconfined
+
     ports:
-      # gdbserver is reachable directly through every Ubuntu host interface.
-      # Restrict this port to trusted client IPs with the host/network firewall.
-      - "0.0.0.0:${NS3_GDB_PORT:-2345}:2345"
+      - "${CODE_SERVER_PORT:-8080}:8080"
+
     volumes:
+      # Source code hiện tại.
       - .:/workspace/ns-3
-      - ns3-ccache:/home/ns3/.cache/ccache
+
+      # Cấu hình và extension code-server.
+      - code-server-config:/home/coder/.config
+      - code-server-data:/home/coder/.local/share/code-server
+
+      # Cache và build output.
+      - ns3-ccache:/home/coder/.cache/ccache
       - ns3-build:/workspace/ns-3/build
       - ns3-cmake-cache:/workspace/ns-3/cmake-cache
+
+      # Che build cache do CLion/macOS tạo ra.
       - ns3-clion-cache-mask:/workspace/ns-3/cmake-build-debug
 
+    cap_add:
+      - SYS_PTRACE
+      - NET_RAW
+
+    security_opt:
+      - seccomp:unconfined
+
 volumes:
+  code-server-config:
+  code-server-data:
   ns3-ccache:
   ns3-build:
   ns3-cmake-cache:
