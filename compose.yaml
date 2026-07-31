@@ -1,6 +1,14 @@
 services:
   code-server:
-    image: ghcr.io/coder/code-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.code-server
+      args:
+        USER_UID: "${NS3_UID:-1000}"
+        USER_GID: "${NS3_GID:-1000}"
+        DOCKER_GID: "${DOCKER_GID:-999}"
+
+    image: code-server-full-dev:local
     container_name: code-server
     hostname: code-server
 
@@ -15,21 +23,34 @@ services:
     working_dir: /workspace/ns-3
 
     ports:
-      # Chỉ expose localhost nếu dùng Nginx/reverse proxy.
       - "${CODE_SERVER_PORT:-8080}:8080"
 
     volumes:
-      # Source ns-3 hiện tại.
+      # Source ns-3 hiện tại
       - .:/workspace/ns-3
 
-      # Code-server configuration and extensions.
+      # Cấu hình và extension code-server
       - code-server-config:/home/coder/.config
       - code-server-data:/home/coder/.local/share/code-server
 
-      # Mount build artifacts để code-server thấy binary khi debug GUI.
+      # Build artifacts dùng chung với container ns3
       - ns3-build:/workspace/ns-3/build
       - ns3-cmake-cache:/workspace/ns-3/cmake-cache
       - ns3-clion-cache-mask:/workspace/ns-3/cmake-build-debug
+
+      # Cho phép terminal code-server điều khiển Docker host
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    group_add:
+      - "${DOCKER_GID:-999}"
+
+    cap_add:
+      - SYS_PTRACE
+
+    security_opt:
+      - seccomp:unconfined
+
+    shm_size: 2gb
 
     networks:
       - dev-network
