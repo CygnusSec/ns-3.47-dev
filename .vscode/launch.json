@@ -27,6 +27,16 @@
                     "description": "Enable GDB pretty-printing",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
+                },
+                {
+                    "description": "Set ns-3 runtime library path",
+                    "text": "set environment LD_LIBRARY_PATH=${workspaceFolder}/build/lib",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set ns-3 symbol library path",
+                    "text": "set solib-search-path ${workspaceFolder}/build/lib",
+                    "ignoreFailures": false
                 }
             ]
         },
