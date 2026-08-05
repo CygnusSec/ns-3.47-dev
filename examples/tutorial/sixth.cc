@@ -79,6 +79,71 @@ CwndChange(Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
                          << std::endl;
 }
 
+/** Report a change to TCP's slow-start threshold, in bytes. */
+static void
+SsThreshChange(uint32_t oldValue, uint32_t newValue)
+{
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] ssthresh " << oldValue << " -> "
+                          << newValue << " bytes");
+}
+
+/** Report a transition in TCP's congestion-control state machine. */
+static void
+CongStateChange(TcpSocketState::TcpCongState_t oldState, TcpSocketState::TcpCongState_t newState)
+{
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] congestion state "
+                          << TcpSocketState::TcpCongStateName[oldState] << " -> "
+                          << TcpSocketState::TcpCongStateName[newState]);
+}
+
+/** Report a transition in the TCP connection state machine. */
+static void
+ConnectionStateChange(TcpSocket::TcpStates_t oldState, TcpSocket::TcpStates_t newState)
+{
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] connection state "
+                          << TcpSocket::TcpStateName[oldState] << " -> "
+                          << TcpSocket::TcpStateName[newState]);
+}
+
+/** Report an update to TCP's smoothed round-trip-time estimate. */
+static void
+RttChange(Time oldValue, Time newValue)
+{
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] smoothed RTT "
+                          << oldValue.GetMilliSeconds() << " -> " << newValue.GetMilliSeconds()
+                          << " ms");
+}
+
+/** Report an update to TCP's retransmission timeout. */
+static void
+RtoChange(Time oldValue, Time newValue)
+{
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] RTO "
+                          << oldValue.GetMilliSeconds() << " -> " << newValue.GetMilliSeconds()
+                          << " ms");
+}
+
+/** Report how many transmitted bytes have not yet been acknowledged. */
+static void
+BytesInFlightChange(uint32_t oldValue, uint32_t newValue)
+{
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] bytes in flight " << oldValue
+                          << " -> " << newValue);
+}
+
+/** Report a TCP segment sent again after inferred loss or timeout. */
+static void
+Retransmission(Ptr<const Packet> packet,
+               const TcpHeader& header,
+               const Address&,
+               const Address&,
+               Ptr<const TcpSocketBase>)
+{
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
+                          << "s] RETRANSMIT seq=" << header.GetSequenceNumber()
+                          << " payload=" << packet->GetSize() << " bytes");
+}
+
 /**
  * Rx drop callback
  *
@@ -102,6 +167,8 @@ main(int argc, char* argv[])
     bool printAttributes = true;
     // Control optional per-packet IPv4/TCP diagnostics; this can produce substantial output.
     bool tracePackets = false;
+    // Control detailed TCP/CUBIC state tracing used to explain the complete transport workflow.
+    bool detailedLog = false;
 
     // Parse standard ns-3 command-line arguments.
     // Include this source filename in --help output to identify the owning example.
@@ -109,8 +176,21 @@ main(int argc, char* argv[])
     // Bind each accepted option directly to the local variable that controls its behavior.
     cmd.AddValue("printAttributes", "Print readable attributes for every model", printAttributes);
     cmd.AddValue("tracePackets", "Print IPv4 TCP forwarding actions", tracePackets);
+    cmd.AddValue("detailedLog",
+                 "Print TCP handshake, CUBIC state, RTT, RTO, flight size and retransmissions",
+                 detailedLog);
     // Parse before constructing model objects so options affect the complete setup phase.
     cmd.Parse(argc, argv);
+
+    // Enable internal transport logs only on request; trace-file generation remains always enabled.
+    if (detailedLog)
+    {
+        // Explain CUBIC's congestion-window and epoch calculations.
+        LogComponentEnable("TcpCubic", LOG_LEVEL_DEBUG);
+        // Explain handshake, ACK processing, transmission, duplicate ACKs, and loss recovery.
+        LogComponentEnable("TcpSocketBase", LOG_LEVEL_INFO);
+        NS_LOG_UNCOND("[WORKFLOW 0s] Detailed TCP logging enabled");
+    }
 
     // Create two nodes joined by a configured point-to-point channel.
     // Keep convenient references to both endpoints: node 0 sends and node 1 receives.
@@ -173,6 +253,12 @@ main(int argc, char* argv[])
     // TcpSocketFactory asks node 0's installed TCP implementation to construct the concrete socket.
     Ptr<Socket> ns3TcpSocket = Socket::CreateSocket(nodes.Get(0), TcpSocketFactory::GetTypeId());
 
+    if (detailedLog)
+    {
+        NS_LOG_UNCOND("[WORKFLOW 0s] Topology ready: n0/10.1.1.1 -> n1/10.1.1.2:8080");
+        NS_LOG_UNCOND("[WORKFLOW 0s] Receiver starts at 0s; sender starts at 1s; stop at 20s");
+    }
+
     // Generate a 1 Mbps stream of 1000 packets, each containing 1040 bytes.
     // Allocate the custom sender application as a reference-counted ns-3 object.
     Ptr<TutorialApp> app = CreateObject<TutorialApp>();
@@ -184,6 +270,25 @@ main(int argc, char* argv[])
     app->SetStartTime(Seconds(1.));
     // At t=20 it cancels any pending send event and closes the socket.
     app->SetStopTime(Seconds(20.));
+
+    if (detailedLog)
+    {
+        // ssthresh separates exponential slow start from linear congestion avoidance.
+        ns3TcpSocket->TraceConnectWithoutContext("SlowStartThreshold",
+                                                 MakeCallback(&SsThreshChange));
+        // CongState exposes CA_OPEN, CA_DISORDER, CA_RECOVERY, and CA_LOSS transitions.
+        ns3TcpSocket->TraceConnectWithoutContext("CongState", MakeCallback(&CongStateChange));
+        // State exposes connection setup/teardown, including SYN_SENT and ESTABLISHED.
+        ns3TcpSocket->TraceConnectWithoutContext("State", MakeCallback(&ConnectionStateChange));
+        // RTT and RTO show how acknowledgment timing drives timeout calculation.
+        ns3TcpSocket->TraceConnectWithoutContext("RTT", MakeCallback(&RttChange));
+        ns3TcpSocket->TraceConnectWithoutContext("RTO", MakeCallback(&RtoChange));
+        // BytesInFlight can be compared with cwnd to see when transmission is window-limited.
+        ns3TcpSocket->TraceConnectWithoutContext("BytesInFlight",
+                                                 MakeCallback(&BytesInFlightChange));
+        // Retransmission marks the exact sequence range TCP sends again after detecting loss.
+        ns3TcpSocket->TraceConnectWithoutContext("Retransmission", MakeCallback(&Retransmission));
+    }
 
     // Create sixth.cwnd and bind its stream into the congestion callback.
     // This helper manages an ostream whose lifetime safely spans all later callback invocations.
@@ -217,10 +322,21 @@ main(int argc, char* argv[])
     }
 
     // Execute no later than 20 seconds, then clean up simulator resources.
+    if (detailedLog)
+    {
+        NS_LOG_UNCOND("[WORKFLOW 0s] Traces connected; entering Simulator::Run()");
+    }
+
     // Schedule a hard stop so no remaining protocol timer can extend execution beyond 20 s.
     Simulator::Stop(Seconds(20));
     // Process queued events in timestamp order until the global stop event executes.
     Simulator::Run();
+
+    if (detailedLog)
+    {
+        NS_LOG_UNCOND("[WORKFLOW " << Simulator::Now().GetSeconds()
+                                   << "s] Event loop stopped; collecting final counters");
+    }
 
     // Recover PacketSink's concrete API so its total application-byte counter can be read.
     Ptr<PacketSink> sink = DynamicCast<PacketSink>(sinkApps.Get(0));
