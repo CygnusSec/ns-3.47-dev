@@ -39,11 +39,22 @@ class PointToPointGridHelper
      *
      * @param nCols total number of columns in the grid
      *
-     * @param pointToPoint the PointToPointHelper which is used
-     *                     to connect all of the nodes together
-     *                     in the grid
+     * @param pointToPoint the PointToPointHelper used to connect the nodes
      */
     PointToPointGridHelper(uint32_t nRows, uint32_t nCols, PointToPointHelper pointToPoint);
+
+    /**
+     * Create a grid with optional point-to-point diagonal links.
+     *
+     * @param nRows total number of rows in the grid
+     * @param nCols total number of columns in the grid
+     * @param nDiags diagonal directions per cell: 0 for none, 1 for backslash, or 2 for both
+     * @param pointToPoint the PointToPointHelper used to connect the nodes
+     */
+    PointToPointGridHelper(uint32_t nRows,
+                           uint32_t nCols,
+                           uint32_t nDiags,
+                           PointToPointHelper pointToPoint);
 
     ~PointToPointGridHelper();
 
@@ -87,7 +98,6 @@ class PointToPointGridHelper
      * @param row the row address of the node desired
      *
      * @param col the column address of the node desired
-     *
      * @returns Ipv6Address of one of the interfaces of the node
      *          specified by the (row, col) address
      */
@@ -107,8 +117,16 @@ class PointToPointGridHelper
      *
      * @param colIp the Ipv4AddressHelper used to assign Ipv4 addresses
      *              to all of the column interfaces in the grid
+     *
+     * @param diagIp the Ipv4AddressHelper used to assign Ipv4 addresses
+     *              to all of the diagonal interfaces in the grid
      */
     void AssignIpv4Addresses(Ipv4AddressHelper rowIp, Ipv4AddressHelper colIp);
+
+    /** Assign IPv4 addresses to row, column, and diagonal links. */
+    void AssignIpv4Addresses(Ipv4AddressHelper rowIp,
+                             Ipv4AddressHelper colIp,
+                             Ipv4AddressHelper diagIp);
 
     /**
      * Assigns Ipv6 addresses to all the row and column interfaces
@@ -116,8 +134,12 @@ class PointToPointGridHelper
      * @param network an IPv6 address representing the network portion
      *                of the IPv6 Address
      * @param prefix the prefix length
+     * @param diagPrefix the prefix length for diagonal interfaces
      */
     void AssignIpv6Addresses(Ipv6Address network, Ipv6Prefix prefix);
+
+    /** Assign IPv6 addresses to row, column, and diagonal links. */
+    void AssignIpv6Addresses(Ipv6Address network, Ipv6Prefix prefix, Ipv6Prefix diagPrefix);
 
     /**
      * Sets up the node canvas locations for every node in the grid.
@@ -137,9 +159,12 @@ class PointToPointGridHelper
     std::vector<NetDeviceContainer> m_colDevices;        //!< NetDevices in a column
     std::vector<Ipv4InterfaceContainer> m_rowInterfaces; //!< IPv4 interfaces in a row
     std::vector<Ipv4InterfaceContainer> m_colInterfaces; //!< IPv4 interfaces in a column
-    std::vector<Ipv6InterfaceContainer> m_rowInterfaces6; //!< IPv6 interfaces in a row
-    std::vector<Ipv6InterfaceContainer> m_colInterfaces6; //!< IPv6 interfaces in a column
-    std::vector<NodeContainer> m_nodes;                   //!< all the nodes in the grid
+    std::vector<Ipv6InterfaceContainer> m_rowInterfaces6;  //!< IPv6 interfaces in a row
+    std::vector<Ipv6InterfaceContainer> m_colInterfaces6;  //!< IPv6 interfaces in a column
+    std::vector<NetDeviceContainer> m_diagDevices;         //!< NetDevices in a diagonal
+    std::vector<Ipv4InterfaceContainer> m_diagInterfaces;  //!< IPv4 interfaces in a diagonal
+    std::vector<Ipv6InterfaceContainer> m_diagInterfaces6; //!< IPv6 interfaces
+    std::vector<NodeContainer> m_nodes;                    //!< all the nodes in the grid
 };
 
 } // namespace ns3

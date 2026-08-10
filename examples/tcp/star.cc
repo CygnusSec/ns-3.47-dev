@@ -10,6 +10,7 @@
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-layout-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/simulation-debug-helper.h"
 
 // Network topology (default)
 //
@@ -29,6 +30,17 @@ NS_LOG_COMPONENT_DEFINE("Star");
 int
 main(int argc, char* argv[])
 {
+    bool printAttributes = true;
+    // Default number of nodes in the star.  Overridable by command line argument.
+    uint32_t nSpokes = 8;
+
+    // Use the source filename in --help output so users can identify the owning example.
+    CommandLine cmd(__FILE__);
+    cmd.AddValue("printAttributes", "Print the attributes of each node", printAttributes);
+    cmd.AddValue("nSpokes", "Number of nodes to place in the star", nSpokes);
+    // Parse arguments before creating model objects so every option affects initial configuration.
+    cmd.Parse(argc, argv);
+
     //
     // Set up some default values for the simulation.
     //
@@ -36,15 +48,6 @@ main(int argc, char* argv[])
 
     // ??? try and stick 15kb/s into the data rate
     Config::SetDefault("ns3::OnOffApplication::DataRate", StringValue("14kb/s"));
-
-    //
-    // Default number of nodes in the star.  Overridable by command line argument.
-    //
-    uint32_t nSpokes = 8;
-
-    CommandLine cmd(__FILE__);
-    cmd.AddValue("nSpokes", "Number of nodes to place in the star", nSpokes);
-    cmd.Parse(argc, argv);
 
     NS_LOG_INFO("Build star topology.");
     PointToPointHelper pointToPoint;
@@ -58,6 +61,7 @@ main(int argc, char* argv[])
 
     NS_LOG_INFO("Assign IP Addresses.");
     star.AssignIpv4Addresses(Ipv4AddressHelper("10.1.1.0", "255.255.255.0"));
+    SimulationDebugHelper::PrintTopology("ns-3 star Topology", printAttributes);
 
     NS_LOG_INFO("Create applications.");
     //
@@ -93,7 +97,6 @@ main(int argc, char* argv[])
     // Turn on global static routing so we can actually be routed across the star.
     //
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
-
     NS_LOG_INFO("Enable pcap tracing.");
     //
     // Do pcap tracing on all point-to-point devices on all nodes.

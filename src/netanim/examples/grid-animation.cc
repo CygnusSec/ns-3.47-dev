@@ -12,6 +12,7 @@
 #include "ns3/point-to-point-layout-module.h"
 #include "ns3/point-to-point-module.h"
 
+#include <cstdint>
 #include <iostream>
 
 using namespace ns3;
@@ -24,11 +25,13 @@ main(int argc, char* argv[])
 
     uint32_t xSize = 5;
     uint32_t ySize = 5;
+    uint32_t nDiags = 2;
     std::string animFile = "grid-animation.xml";
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("xSize", "Number of rows of nodes", xSize);
     cmd.AddValue("ySize", "Number of columns of nodes", ySize);
+    cmd.AddValue("nDiags", "Number of diagonals in the grid", nDiags);
     cmd.AddValue("animFile", "File Name for Animation Output", animFile);
 
     cmd.Parse(argc, argv);
@@ -42,7 +45,7 @@ main(int argc, char* argv[])
     pointToPoint.SetChannelAttribute("Delay", StringValue("2ms"));
 
     // Create Grid
-    PointToPointGridHelper grid(xSize, ySize, pointToPoint);
+    PointToPointGridHelper grid(xSize, ySize, nDiags, pointToPoint);
 
     // Install stack on Grid
     InternetStackHelper stack;
@@ -50,7 +53,8 @@ main(int argc, char* argv[])
 
     // Assign Addresses to Grid
     grid.AssignIpv4Addresses(Ipv4AddressHelper("10.1.1.0", "255.255.255.0"),
-                             Ipv4AddressHelper("10.2.1.0", "255.255.255.0"));
+                             Ipv4AddressHelper("10.2.1.0", "255.255.255.0"),
+                             Ipv4AddressHelper("10.3.1.0", "255.255.255.0"));
 
     OnOffHelper clientHelper("ns3::UdpSocketFactory", Address());
     clientHelper.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));

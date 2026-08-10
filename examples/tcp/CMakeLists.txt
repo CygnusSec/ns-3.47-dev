@@ -5,6 +5,7 @@ build_example(
     ${libpoint-to-point}
     ${libapplications}
     ${libinternet}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -14,6 +15,7 @@ build_example(
     ${libpoint-to-point}
     ${libapplications}
     ${libinternet}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -25,6 +27,19 @@ build_example(
     ${libpoint-to-point-layout}
     ${libapplications}
     ${libinternet}
+    ${libdebug-tools}
+)
+
+build_example(
+  NAME grid
+  SOURCE_FILES grid.cc
+  LIBRARIES_TO_LINK
+    ${libnetanim}
+    ${libpoint-to-point}
+    ${libpoint-to-point-layout}
+    ${libapplications}
+    ${libinternet}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -38,6 +53,7 @@ build_example(
     ${libnetwork}
     ${libinternet-apps}
     ${libflow-monitor}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -51,6 +67,7 @@ build_example(
     ${libnetwork}
     ${libinternet-apps}
     ${libflow-monitor}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -60,6 +77,7 @@ build_example(
     ${libpoint-to-point}
     ${libapplications}
     ${libinternet}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -69,6 +87,7 @@ build_example(
     ${libpoint-to-point}
     ${libapplications}
     ${libinternet}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -79,6 +98,7 @@ build_example(
     ${libinternet}
     ${libapplications}
     ${libflow-monitor}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -89,6 +109,7 @@ build_example(
     ${libinternet}
     ${libapplications}
     ${libflow-monitor}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -100,6 +121,7 @@ build_example(
     ${libapplications}
     ${libtraffic-control}
     ${libnetwork}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -112,6 +134,7 @@ build_example(
     ${libtraffic-control}
     ${libnetwork}
     ${libinternet-apps}
+    ${libdebug-tools}
 )
 
 build_example(
@@ -124,6 +147,7 @@ build_example(
     ${libpoint-to-point}
     ${libapplications}
     ${libtraffic-control}
+    ${libdebug-tools}
 )
 build_example(
   NAME fack-example
@@ -136,4 +160,5 @@ build_example(
     ${libnetwork}
     ${libinternet-apps}
     ${libflow-monitor}
+    ${libdebug-tools}
 )

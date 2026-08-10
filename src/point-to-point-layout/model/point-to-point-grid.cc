@@ -24,6 +24,14 @@ NS_LOG_COMPONENT_DEFINE("PointToPointGridHelper");
 PointToPointGridHelper::PointToPointGridHelper(uint32_t nRows,
                                                uint32_t nCols,
                                                PointToPointHelper pointToPoint)
+    : PointToPointGridHelper(nRows, nCols, 0, pointToPoint)
+{
+}
+
+PointToPointGridHelper::PointToPointGridHelper(uint32_t nRows,
+                                               uint32_t nCols,
+                                               uint32_t nDiags,
+                                               PointToPointHelper pointToPoint)
     : m_xSize(nCols),
       m_ySize(nRows)
 {
@@ -31,6 +39,10 @@ PointToPointGridHelper::PointToPointGridHelper(uint32_t nRows,
     if (m_xSize < 1 || m_ySize < 1 || (m_xSize < 2 && m_ySize < 2))
     {
         NS_FATAL_ERROR("Need more nodes for grid.");
+    }
+    if (nDiags > 2)
+    {
+        NS_FATAL_ERROR("PointToPointGridHelper supports 0, 1, or 2 diagonal directions.");
     }
 
     InternetStackHelper stack;
@@ -40,6 +52,7 @@ PointToPointGridHelper::PointToPointGridHelper(uint32_t nRows,
         NodeContainer rowNodes;
         NetDeviceContainer rowDevices;
         NetDeviceContainer colDevices;
+        NetDeviceContainer diagDevices;
 
         for (uint32_t x = 0; x < nCols; ++x)
         {
@@ -56,10 +69,25 @@ PointToPointGridHelper::PointToPointGridHelper(uint32_t nRows,
             {
                 colDevices.Add(pointToPoint.Install((m_nodes.at(y - 1)).Get(x), rowNodes.Get(x)));
             }
+
+            // Install top-left to bottom-right diagonal links (backslash).
+            if (nDiags >= 1 && x > 0 && y > 0)
+            {
+                diagDevices.Add(
+                    pointToPoint.Install((m_nodes.at(y - 1)).Get(x - 1), rowNodes.Get(x)));
+            }
+
+            // Install top-right to bottom-left diagonal links (slash).
+            if (nDiags >= 2 && x + 1 < nCols && y > 0)
+            {
+                diagDevices.Add(
+                    pointToPoint.Install((m_nodes.at(y - 1)).Get(x + 1), rowNodes.Get(x)));
+            }
         }
 
         m_nodes.push_back(rowNodes);
         m_rowDevices.push_back(rowDevices);
+        m_diagDevices.push_back(diagDevices);
 
         if (y > 0)
         {
@@ -87,6 +115,14 @@ PointToPointGridHelper::InstallStack(InternetStackHelper stack)
 
 void
 PointToPointGridHelper::AssignIpv4Addresses(Ipv4AddressHelper rowIp, Ipv4AddressHelper colIp)
+{
+    AssignIpv4Addresses(rowIp, colIp, Ipv4AddressHelper());
+}
+
+void
+PointToPointGridHelper::AssignIpv4Addresses(Ipv4AddressHelper rowIp,
+                                            Ipv4AddressHelper colIp,
+                                            Ipv4AddressHelper diagIp)
 {
     // Assign addresses to all row devices in the grid.
     // These devices are stored in a vector.  Each row
@@ -121,10 +157,40 @@ PointToPointGridHelper::AssignIpv4Addresses(Ipv4AddressHelper rowIp, Ipv4Address
         }
         m_colInterfaces.push_back(colInterfaces);
     }
+
+    // Assign IPv4 addresses to all diagonal point-to-point links.
+    // Each entry in m_diagDevices contains the diagonal devices created for one grid row.
+    for (uint32_t i = 0; i < m_diagDevices.size(); ++i)
+    {
+        Ipv4InterfaceContainer diagInterfaces;
+        NetDeviceContainer diagContainer = m_diagDevices[i];
+
+        // PointToPointHelper::Install() creates two devices per link, so process the
+        // container in pairs and place both endpoints in the same IPv4 subnet.
+        for (uint32_t j = 0; j < diagContainer.GetN(); j += 2)
+        {
+            diagInterfaces.Add(diagIp.Assign(diagContainer.Get(j)));
+            diagInterfaces.Add(diagIp.Assign(diagContainer.Get(j + 1)));
+
+            // Use a new subnet for the next diagonal point-to-point link.
+            diagIp.NewNetwork();
+        }
+
+        // Retain the assigned interfaces in the same row-based layout as m_diagDevices.
+        m_diagInterfaces.push_back(diagInterfaces);
+    }
 }
 
 void
 PointToPointGridHelper::AssignIpv6Addresses(Ipv6Address addrBase, Ipv6Prefix prefix)
+{
+    AssignIpv6Addresses(addrBase, prefix, prefix);
+}
+
+void
+PointToPointGridHelper::AssignIpv6Addresses(Ipv6Address addrBase,
+                                            Ipv6Prefix prefix,
+                                            Ipv6Prefix diagPrefix)
 {
     Ipv6AddressGenerator::Init(addrBase, prefix);
     Ipv6Address v6network;
@@ -170,6 +236,24 @@ PointToPointGridHelper::AssignIpv6Addresses(Ipv6Address addrBase, Ipv6Prefix pre
             Ipv6AddressGenerator::NextNetwork(prefix);
         }
         m_colInterfaces6.push_back(colInterfaces);
+    }
+
+    // Assign addresses to all diagonal point-to-point links.
+    for (uint32_t i = 0; i < m_diagDevices.size(); ++i)
+    {
+        Ipv6InterfaceContainer diagInterfaces;
+        NetDeviceContainer diagContainer = m_diagDevices[i];
+        for (uint32_t j = 0; j < diagContainer.GetN(); j += 2)
+        {
+            v6network = Ipv6AddressGenerator::GetNetwork(diagPrefix);
+            addrHelper.SetBase(v6network, diagPrefix);
+            Ipv6InterfaceContainer ic = addrHelper.Assign(diagContainer.Get(j));
+            diagInterfaces.Add(ic);
+            ic = addrHelper.Assign(diagContainer.Get(j + 1));
+            diagInterfaces.Add(ic);
+            Ipv6AddressGenerator::NextNetwork(diagPrefix);
+        }
+        m_diagInterfaces6.push_back(diagInterfaces);
     }
 }
 
