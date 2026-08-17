@@ -181,6 +181,7 @@ build_example(
   SOURCE_FILES wifi-simple-adhoc.cc
   LIBRARIES_TO_LINK ${libinternet}
                     ${libwifi}
+                    ${libdebug-tools}
 )
 
 build_example(

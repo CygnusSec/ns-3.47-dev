@@ -46,6 +46,7 @@
 #include "ns3/log.h"
 #include "ns3/mobility-helper.h"
 #include "ns3/mobility-model.h"
+#include "ns3/simulation-debug-helper.h"
 #include "ns3/string.h"
 #include "ns3/yans-wifi-channel.h"
 #include "ns3/yans-wifi-helper.h"
@@ -53,6 +54,14 @@
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("WifiSimpleAdhoc");
+
+// Small application-level summary.  Keeping these counters next to the
+// callbacks makes it easy to compare the requested traffic with the traffic
+// that actually crossed the UDP sockets.
+static uint32_t g_packetsSent{0};
+static uint32_t g_packetsReceived{0};
+static uint64_t g_bytesSent{0};
+static uint64_t g_bytesReceived{0};
 
 /**
  * Function called when a packet is received.
@@ -62,9 +71,20 @@ NS_LOG_COMPONENT_DEFINE("WifiSimpleAdhoc");
 void
 ReceivePacket(Ptr<Socket> socket)
 {
-    while (socket->Recv())
+    Address sender;
+    Ptr<Packet> packet;
+    while ((packet = socket->RecvFrom(sender)))
     {
-        NS_LOG_UNCOND("Received one packet!");
+        ++g_packetsReceived;
+        g_bytesReceived += packet->GetSize();
+
+        InetSocketAddress senderAddress = InetSocketAddress::ConvertFrom(sender);
+        NS_LOG_UNCOND("[APP-RX] t=" << Simulator::Now().GetSeconds() << "s"
+                                    << " node=n" << socket->GetNode()->GetId()
+                                    << " from=" << senderAddress.GetIpv4() << ":"
+                                    << senderAddress.GetPort() << " uid=" << packet->GetUid()
+                                    << " bytes=" << packet->GetSize()
+                                    << " received=" << g_packetsReceived);
     }
 }
 
@@ -81,7 +101,22 @@ GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize, uint32_t pktCount, Time pk
 {
     if (pktCount > 0)
     {
-        socket->Send(Create<Packet>(pktSize));
+        Ptr<Packet> packet = Create<Packet>(pktSize);
+        const int bytesAccepted = socket->Send(packet);
+        if (bytesAccepted >= 0)
+        {
+            ++g_packetsSent;
+            g_bytesSent += static_cast<uint32_t>(bytesAccepted);
+        }
+
+        NS_LOG_UNCOND("[APP-TX] t=" << Simulator::Now().GetSeconds() << "s"
+                                    << " node=n" << socket->GetNode()->GetId()
+                                    << " uid=" << packet->GetUid() << " requestedBytes=" << pktSize
+                                    << " acceptedBytes=" << bytesAccepted
+                                    << " packetsRemaining=" << (pktCount - 1));
+
+        // Each call sends one packet and schedules the next call as a future
+        // discrete event; no thread sleeps between packets.
         Simulator::Schedule(pktInterval,
                             &GenerateTraffic,
                             socket,
@@ -91,6 +126,8 @@ GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize, uint32_t pktCount, Time pk
     }
     else
     {
+        NS_LOG_UNCOND("[APP-TX] t=" << Simulator::Now().GetSeconds()
+                                    << "s sender finished; closing UDP socket");
         socket->Close();
     }
 }
@@ -104,6 +141,8 @@ main(int argc, char* argv[])
     uint32_t numPackets{1};
     Time interPacketInterval{"1s"};
     bool verbose{false};
+    bool tracePackets{true};
+    bool printTopology{true};
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("phyMode", "Wifi Phy mode", phyMode);
@@ -112,15 +151,30 @@ main(int argc, char* argv[])
     cmd.AddValue("numPackets", "number of packets generated", numPackets);
     cmd.AddValue("interval", "interval between packets", interPacketInterval);
     cmd.AddValue("verbose", "turn on all WifiNetDevice log components", verbose);
+    cmd.AddValue("tracePackets", "print IPv4 SEND/FORWARD/DELIVER events", tracePackets);
+    cmd.AddValue("printTopology", "print the discovered topology before running", printTopology);
     cmd.Parse(argc, argv);
+
+    NS_LOG_UNCOND("\n=== 1. Parsed simulation configuration ===");
+    NS_LOG_UNCOND("standard=802.11b phyMode=" << phyMode << " fixedRss=" << rss);
+    NS_LOG_UNCOND("packetSize=" << packetSize << " numPackets=" << numPackets
+                                << " interval=" << interPacketInterval.GetSeconds() << "s");
 
     // Fix non-unicast data rate to be the same as that of unicast
     Config::SetDefault("ns3::WifiRemoteStationManager::NonUnicastMode", StringValue(phyMode));
 
+    // STEP 2: Create two empty nodes.  Protocol stacks, Wi-Fi devices and
+    // applications/sockets are installed in later, separate stages.
+    NS_LOG_UNCOND("\n=== 2. Create nodes ===");
     NodeContainer c;
     c.Create(2);
+    NS_LOG_UNCOND("created node n" << c.Get(0)->GetId() << " (receiver) and n"
+                                   << c.Get(1)->GetId() << " (sender)");
 
     // The below set of helpers will help us to put together the wifi NICs we want
+    // STEP 3: Build an 802.11b ad-hoc network.  AdhocWifiMac has no access
+    // point or association phase; both stations participate as peers.
+    NS_LOG_UNCOND("\n=== 3. Configure Wi-Fi PHY, channel and ad-hoc MAC ===");
     WifiHelper wifi;
     if (verbose)
     {
@@ -141,6 +195,8 @@ main(int argc, char* argv[])
     // of the distance between the two stations, and the transmit power
     wifiChannel.AddPropagationLoss("ns3::FixedRssLossModel", "Rss", DoubleValue(rss));
     wifiPhy.SetChannel(wifiChannel.Create());
+    NS_LOG_UNCOND("channel=YansWifiChannel delay=constant-speed loss=fixed-rss(" << rss
+                                                                                << ")");
 
     // Add a mac and disable rate control
     WifiMacHelper wifiMac;
@@ -152,9 +208,14 @@ main(int argc, char* argv[])
     // Set it to adhoc mode
     wifiMac.SetType("ns3::AdhocWifiMac");
     NetDeviceContainer devices = wifi.Install(wifiPhy, wifiMac, c);
+    NS_LOG_UNCOND("installed " << devices.GetN()
+                               << " WifiNetDevices with constant data/control rate " << phyMode);
 
     // Note that with FixedRssLossModel, the positions below are not
     // used for received signal strength.
+    // STEP 4: Positions are still useful for topology inspection, but the
+    // FixedRssLossModel deliberately makes distance irrelevant to reception.
+    NS_LOG_UNCOND("\n=== 4. Install constant-position mobility ===");
     MobilityHelper mobility;
     Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator>();
     positionAlloc->Add(Vector(0.0, 0.0, 0.0));
@@ -162,7 +223,10 @@ main(int argc, char* argv[])
     mobility.SetPositionAllocator(positionAlloc);
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mobility.Install(c);
+    NS_LOG_UNCOND("n0=(0,0,0), n1=(5,0,0); positions do not alter fixed RSS");
 
+    // STEP 5: Install IPv4/UDP support and assign one address per Wi-Fi NIC.
+    NS_LOG_UNCOND("\n=== 5. Install Internet stack and assign IPv4 addresses ===");
     InternetStackHelper internet;
     internet.Install(c);
 
@@ -170,7 +234,11 @@ main(int argc, char* argv[])
     NS_LOG_INFO("Assign IP Addresses.");
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
     Ipv4InterfaceContainer i = ipv4.Assign(devices);
+    NS_LOG_UNCOND("n0=" << i.GetAddress(0) << "/24, n1=" << i.GetAddress(1) << "/24");
 
+    // STEP 6: n0 listens on UDP port 80.  n1 sends link-subnet broadcast
+    // packets, demonstrating that ad-hoc peers communicate without an AP.
+    NS_LOG_UNCOND("\n=== 6. Create and connect UDP sockets ===");
     TypeId tid = TypeId::LookupByName("ns3::UdpSocketFactory");
     Ptr<Socket> recvSink = Socket::CreateSocket(c.Get(0), tid);
     InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
@@ -181,12 +249,29 @@ main(int argc, char* argv[])
     InetSocketAddress remote = InetSocketAddress(Ipv4Address("255.255.255.255"), 80);
     source->SetAllowBroadcast(true);
     source->Connect(remote);
+    NS_LOG_UNCOND("receiver=n0 0.0.0.0:80; sender=n1 -> 255.255.255.255:80 (broadcast)");
 
     // Tracing
     wifiPhy.EnablePcap("wifi-simple-adhoc", devices);
+    NS_LOG_UNCOND("PCAP enabled: wifi-simple-adhoc-0-0.pcap and wifi-simple-adhoc-1-0.pcap");
+
+    if (printTopology)
+    {
+        // Print model types, devices, channel membership, mobility and IP data.
+        // Attribute expansion is disabled here to keep the example readable.
+        SimulationDebugHelper::PrintTopology("wifi-simple-adhoc topology", false);
+    }
+
+    if (tracePackets)
+    {
+        // Attach at IPv4 so the output shows where the packet is created and
+        // where it is delivered, independently of verbose internal Wi-Fi logs.
+        SimulationDebugHelper::EnableIpv4PacketFlowTracing();
+    }
 
     // Output what we are doing
-    NS_LOG_UNCOND("Testing " << numPackets << " packets sent with receiver rss " << rss);
+    NS_LOG_UNCOND("\n=== 7. Schedule and run the discrete-event simulation ===");
+    NS_LOG_UNCOND("first transmission at t=1s; requested packets=" << numPackets);
 
     Simulator::ScheduleWithContext(source->GetNode()->GetId(),
                                    Seconds(1),
@@ -197,6 +282,15 @@ main(int argc, char* argv[])
                                    interPacketInterval);
 
     Simulator::Run();
+
+    NS_LOG_UNCOND("\n=== 8. Simulation summary ===");
+    NS_LOG_UNCOND("sentPackets=" << g_packetsSent << " sentBytes=" << g_bytesSent
+                                  << " receivedPackets=" << g_packetsReceived
+                                  << " receivedBytes=" << g_bytesReceived
+                                  << " packetDeliveryRatio="
+                                  << (g_packetsSent ? 100.0 * g_packetsReceived / g_packetsSent : 0.0)
+                                  << "%");
+    NS_LOG_UNCOND("Tip: compare --rss=-97, --rss=-98 and --rss=-99 to observe reception loss.");
     Simulator::Destroy();
 
     return 0;
