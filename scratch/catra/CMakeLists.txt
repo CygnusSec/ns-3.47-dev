@@ -20,8 +20,11 @@ build_exec(
 
 build_exec(
   EXECNAME catra-active-time-probe
-  SOURCE_FILES catra-active-time-probe.cc
-               catra-active-time-estimator.cc
+  # Match the target name inferred by ./ns3 for a main source stored in the
+  # nested active-time-estimation directory.
+  EXECNAME_PREFIX scratch_catra_active-time-estimation_
+  SOURCE_FILES active-time-estimation/catra-active-time-probe.cc
+               active-time-estimation/catra-active-time-estimator.cc
   LIBRARIES_TO_LINK "${ns3-libs}"
                     "${ns3-contrib-libs}"
   EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/active-time-estimation
