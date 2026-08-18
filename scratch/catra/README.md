@@ -20,6 +20,8 @@ research scenarios can use separate sibling directories under `scratch`:
 scratch/catra/
 ├── CMakeLists.txt
 ├── README.md
+├── catra-active-time-estimator.cc/.h
+├── catra-active-time-probe.cc
 ├── catra-phy-range-probe.cc
 └── catra-scenario1.cc
 ```
@@ -85,6 +87,35 @@ traffic=none
 ```
 
 Phase 3 owns static host-route population and bidirectional UDP validation.
+
+### Algorithm 1 active-time measurement record
+
+The read-only `CatraActiveTimeEstimator` implements the paper's two-second
+period and exponential smoothing rule:
+
+```text
+TActive = 0.8 * previous_TActive + 0.2 * current_active_time
+RBRs = TActive / EP
+```
+
+It consumes exact `WifiPhyStateHelper::State` TX durations per station, splits
+accounting at estimation-period boundaries, clears the raw accumulator after
+each report, and never changes the contention window. The accompanying
+`catra-active-time-probe` connects the estimator to real Wi-Fi PHY traces and
+prints every raw and smoothed period.
+
+This is intentionally labeled a `PORT` measurement. The paper attributes a
+complete RTS/CTS/DATA/ACK transaction to each classified TCP DATA or TCP ACK
+packet, while this first ns-3 slice measures exact local PHY TX duration. TCP
+packet classification, `nSEND/nTX/nCS`, `FBRs`, and CW adaptation remain later
+work and must not be inferred from this probe.
+
+Run the strict probe with:
+
+```bash
+docker compose exec -T ns3 ./ns3 build catra-active-time-probe -j 2
+docker compose exec -T ns3 ./ns3 run catra-active-time-probe --no-build
+```
 
 ## Wi-Fi and propagation contract
 

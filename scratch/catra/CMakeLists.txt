@@ -17,3 +17,12 @@ build_exec(
                     "${ns3-contrib-libs}"
   EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra
 )
+
+build_exec(
+  EXECNAME catra-active-time-probe
+  SOURCE_FILES catra-active-time-probe.cc
+               catra-active-time-estimator.cc
+  LIBRARIES_TO_LINK "${ns3-libs}"
+                    "${ns3-contrib-libs}"
+  EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra
+)
