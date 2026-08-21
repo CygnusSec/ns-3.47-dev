@@ -41,6 +41,26 @@ PrintSample(const CatraActiveTimeSample& sample)
               << " smoothed_active_s=" << sample.smoothedActiveTime.GetSeconds()
               << " rbrs=" << sample.realBandwidthRatio
               << " tx_state_events=" << sample.txStateEvents << "\n";
+
+    const double previousContribution = 0.8 * sample.previousSmoothedActiveTime.GetSeconds();
+    const double currentContribution = 0.2 * sample.rawTxTime.GetSeconds();
+    const double periodDuration = (sample.periodEnd - sample.periodStart).GetSeconds();
+    std::cout << "  [EP-WINDOW] interval=[" << sample.periodStart.GetSeconds() << ", "
+              << sample.periodEnd.GetSeconds() << ") seconds duration_s=" << periodDuration
+              << " boundary_semantics=half-open\n"
+              << "  [RAW-ACTIVE-TIME] accepted_phy_state=TX events=" << sample.txStateEvents
+              << " sum_tx_duration_s=" << sample.rawTxTime.GetSeconds() << "\n"
+              << "  [EWMA-INPUT] previous_tactive_s="
+              << sample.previousSmoothedActiveTime.GetSeconds()
+              << " current_raw_tx_s=" << sample.rawTxTime.GetSeconds() << "\n"
+              << "  [EWMA-CALCULATION] (0.8 * "
+              << sample.previousSmoothedActiveTime.GetSeconds() << ") + (0.2 * "
+              << sample.rawTxTime.GetSeconds() << ") = "
+              << previousContribution << " + " << currentContribution << " = "
+              << sample.smoothedActiveTime.GetSeconds() << " seconds\n"
+              << "  [RBRS-CALCULATION] " << sample.smoothedActiveTime.GetSeconds() << " / "
+              << periodDuration << " = " << sample.realBandwidthRatio
+              << " dimensionless_local_tx_ratio\n";
 }
 
 } // namespace
@@ -123,6 +143,29 @@ main(int argc, char* argv[])
     // consume positions from GridPositionAllocator in NodeContainer order.
     mobility.Install(nodes);
 
+    std::cout << "\n=== Mobility and topology ===\n"
+              << "[MOBILITY-CONFIG] allocator=GridPositionAllocator model="
+                 "ConstantPositionMobilityModel min_x_m=0 min_y_m=0 delta_x_m=10 "
+                 "delta_y_m=0 grid_width=2 layout=RowFirst moving=false\n";
+    const Vector referencePosition = nodes.Get(0)->GetObject<MobilityModel>()->GetPosition();
+    for (uint32_t index = 0; index < nodes.GetN(); ++index)
+    {
+        Ptr<MobilityModel> model = nodes.Get(index)->GetObject<MobilityModel>();
+        const Vector position = model->GetPosition();
+        const Vector velocity = model->GetVelocity();
+        const double distanceFromStation0 = CalculateDistance(referencePosition, position);
+        std::cout << std::fixed << std::setprecision(3)
+                  << "[MOBILITY-NODE] station=" << index
+                  << " node_id=" << nodes.Get(index)->GetId()
+                  << " role=" << (index == 0 ? "udp-source" : "udp-receiver")
+                  << " model=ConstantPositionMobilityModel"
+                  << " position_m=(" << position.x << "," << position.y << "," << position.z
+                  << ") velocity_mps=(" << velocity.x << "," << velocity.y << "," << velocity.z
+                  << ") distance_from_station0_m=" << distanceFromStation0 << "\n";
+    }
+    std::cout << "[MOBILITY-EFFECT] positions remain constant; distance controls propagation "
+                 "delay/loss, while mobility contributes no time variation to PHY TX durations.\n";
+
     // This executable validates trace accounting, not the calibrated Scenario
     // 1 propagation boundaries. The default Yans channel and a reliable 10 m
     // link remove propagation loss as a confounding variable.
@@ -148,6 +191,13 @@ main(int argc, char* argv[])
     Ipv4AddressHelper addresses;
     addresses.SetBase("10.50.0.0", "255.255.255.0");
     Ipv4InterfaceContainer interfaces = addresses.Assign(devices);
+    for (uint32_t index = 0; index < nodes.GetN(); ++index)
+    {
+        std::cout << "[NETWORK-NODE] station=" << index
+                  << " ipv4=" << interfaces.GetAddress(index)
+                  << " wifi_standard=802.11b mac=adhoc data_mode=DsssRate11Mbps"
+                  << " control_mode=DsssRate11Mbps\n";
+    }
 
     // Start the receiver before the sender. The sender runs long enough to
     // cover several complete EPs, making EWMA history visible in the logs.
@@ -165,6 +215,16 @@ main(int argc, char* argv[])
     ApplicationContainer senderApp = sender.Install(nodes.Get(0));
     senderApp.Start(Seconds(1.0));
     senderApp.Stop(Seconds(simulationTimeS - 0.1));
+
+    std::cout << "\n=== Traffic timeline ===\n"
+              << "[TRAFFIC] protocol=UDP source_station=0 destination_station=1"
+              << " destination=" << interfaces.GetAddress(1) << ":" << port
+              << " offered_rate=" << offeredRate << " packet_size_bytes=" << packetSize << "\n"
+              << "[APPLICATION-TIMELINE] receiver=[0.5," << simulationTimeS
+              << "] sender=[1.0," << (simulationTimeS - 0.1)
+              << "] estimator=[0.0," << simulationTimeS << "] seconds\n"
+              << "[ALGORITHM] for each station and EP: sum local PHY TX overlap; then "
+                 "TActive(k)=0.8*TActive(k-1)+0.2*rawTx(k); RBRs=TActive/EP.\n";
 
     // Ownership must remain per station. unique_ptr keeps callback targets at
     // stable addresses and guarantees that no process-wide CATRA state is

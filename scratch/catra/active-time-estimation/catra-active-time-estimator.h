@@ -28,6 +28,7 @@ struct CatraActiveTimeSample
     Time periodStart{};         //!< Inclusive beginning of the completed EP.
     Time periodEnd{};           //!< Exclusive end of the completed EP.
     Time rawTxTime{};           //!< Sum of local PHY TX durations observed during this EP.
+    Time previousSmoothedActiveTime{}; //!< TActive carried into this EP.
     Time smoothedActiveTime{};  //!< Algorithm 1 TActive after applying EWMA smoothing.
     double realBandwidthRatio{}; //!< RBRs = smoothedActiveTime / EP.
     uint64_t txStateEvents{};   //!< Number of TX state transitions, useful for trace auditing.

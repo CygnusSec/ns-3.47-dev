@@ -116,6 +116,7 @@ CatraActiveTimeEstimator::ClosePeriod()
     //   TActive(k) = 0.8 * TActive(k-1) + 0.2 * rawTxTime(k)
     // The initial TActive is zero by construction, matching the paper.
     const double currentWeight = 1.0 - m_historyWeight;
+    const Time previousSmoothedActiveTime = m_smoothedActiveTime;
     m_smoothedActiveTime = Seconds(m_historyWeight * m_smoothedActiveTime.GetSeconds() +
                                    currentWeight * m_rawTxTime.GetSeconds());
 
@@ -126,6 +127,7 @@ CatraActiveTimeEstimator::ClosePeriod()
     sample.periodStart = m_periodStart;
     sample.periodEnd = m_periodEnd;
     sample.rawTxTime = m_rawTxTime;
+    sample.previousSmoothedActiveTime = previousSmoothedActiveTime;
     sample.smoothedActiveTime = m_smoothedActiveTime;
     sample.realBandwidthRatio = GetRealBandwidthRatio();
     sample.txStateEvents = m_txStateEvents;
