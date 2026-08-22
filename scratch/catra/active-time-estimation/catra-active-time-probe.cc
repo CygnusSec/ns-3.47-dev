@@ -2,9 +2,9 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-// This executable validates the read-only core of CATRA Algorithm 1 against
-// real ns-3 Wi-Fi PHY state transitions. It does not change CW and therefore
-// cannot alter channel access behavior.
+// This executable validates CATRA Algorithm 1 against successfully received
+// TCP packets. It reads CW and computes complete modeled Wi-Fi transaction
+// times, but does not change CW and therefore cannot alter channel access.
 
 #include "catra-active-time-estimator.h"
 
@@ -36,31 +36,129 @@ PrintSample(const CatraActiveTimeSample& sample)
               << "[CATRA-ACTIVE-TIME] station=" << sample.stationIndex
               << " period_start_s=" << sample.periodStart.GetSeconds()
               << " period_end_s=" << sample.periodEnd.GetSeconds()
-              << " raw_tx_s=" << sample.rawTxTime.GetSeconds()
+              << " raw_active_s=" << sample.rawActiveTime.GetSeconds()
               << " previous_weight=0.800000 current_weight=0.200000"
               << " smoothed_active_s=" << sample.smoothedActiveTime.GetSeconds()
               << " rbrs=" << sample.realBandwidthRatio
-              << " tx_state_events=" << sample.txStateEvents << "\n";
+              << " tcp_data_packets=" << sample.tcpDataPackets
+              << " tcp_ack_packets=" << sample.tcpAckPackets << "\n";
 
     const double previousContribution = 0.8 * sample.previousSmoothedActiveTime.GetSeconds();
-    const double currentContribution = 0.2 * sample.rawTxTime.GetSeconds();
+    const double currentContribution = 0.2 * sample.rawActiveTime.GetSeconds();
     const double periodDuration = (sample.periodEnd - sample.periodStart).GetSeconds();
     std::cout << "  [EP-WINDOW] interval=[" << sample.periodStart.GetSeconds() << ", "
               << sample.periodEnd.GetSeconds() << ") seconds duration_s=" << periodDuration
               << " boundary_semantics=half-open\n"
-              << "  [RAW-ACTIVE-TIME] accepted_phy_state=TX events=" << sample.txStateEvents
-              << " sum_tx_duration_s=" << sample.rawTxTime.GetSeconds() << "\n"
+              << "  [PACKET-CLASSIFICATION] local_tcp_data=" << sample.tcpDataPackets
+              << " local_pure_tcp_ack=" << sample.tcpAckPackets << "\n"
+              << "  [BACKOFF-INPUT] average_sender_cw=" << sample.averageContentionWindow
+              << " slot_time_s=" << sample.slotTime.GetSeconds()
+              << " expected_per_packet=0.5*CW*ST\n"
+              << "  [TRANSACTION-COMPONENTS] expected_backoff_s="
+              << sample.expectedBackoffTime.GetSeconds()
+              << " rts_s=" << sample.rtsTime.GetSeconds()
+              << " cts_s=" << sample.ctsTime.GetSeconds()
+              << " tcp_frame_s=" << sample.tcpFrameTime.GetSeconds()
+              << " mac_ack_s=" << sample.macAckTime.GetSeconds()
+              << " interframe_3sifs_plus_difs_s=" << sample.interframeTime.GetSeconds() << "\n"
+              << "  [ACTIVE-TIME-SUM] t_s=" << sample.rawActiveTime.GetSeconds()
+              << " formula=sum(0.5*CW*ST+RTS+SIFS+CTS+SIFS+TCP_FRAME+SIFS+MAC_ACK+DIFS)\n"
               << "  [EWMA-INPUT] previous_tactive_s="
               << sample.previousSmoothedActiveTime.GetSeconds()
-              << " current_raw_tx_s=" << sample.rawTxTime.GetSeconds() << "\n"
+              << " current_t_s=" << sample.rawActiveTime.GetSeconds() << "\n"
               << "  [EWMA-CALCULATION] (0.8 * "
               << sample.previousSmoothedActiveTime.GetSeconds() << ") + (0.2 * "
-              << sample.rawTxTime.GetSeconds() << ") = "
+              << sample.rawActiveTime.GetSeconds() << ") = "
               << previousContribution << " + " << currentContribution << " = "
               << sample.smoothedActiveTime.GetSeconds() << " seconds\n"
               << "  [RBRS-CALCULATION] " << sample.smoothedActiveTime.GetSeconds() << " / "
               << periodDuration << " = " << sample.realBandwidthRatio
               << " dimensionless_local_tx_ratio\n";
+}
+
+CatraTransactionTiming
+CalculateTransactionTiming(Ptr<WifiNetDevice> sender,
+                           Ptr<WifiNetDevice> receiver,
+                           Ptr<const Packet> packet)
+{
+    Ptr<WifiPhy> senderPhy = sender->GetPhy();
+    Ptr<WifiMac> senderMac = sender->GetMac();
+    Ptr<WifiRemoteStationManager> senderManager = sender->GetRemoteStationManager();
+    Ptr<WifiRemoteStationManager> receiverManager = receiver->GetRemoteStationManager();
+    const Mac48Address senderAddress = Mac48Address::ConvertFrom(sender->GetAddress());
+    const Mac48Address receiverAddress = Mac48Address::ConvertFrom(receiver->GetAddress());
+    const MHz_u channelWidth = senderPhy->GetChannelWidth();
+
+    WifiMacHeader dataHeader;
+    dataHeader.SetType(WIFI_MAC_DATA);
+    dataHeader.SetAddr1(receiverAddress);
+    dataHeader.SetAddr2(senderAddress);
+    dataHeader.SetAddr3(receiverAddress);
+    const auto mpdu = Create<WifiMpdu>(packet->Copy(), dataHeader);
+
+    const WifiTxVector dataTxVector =
+        senderManager->GetDataTxVector(dataHeader, channelWidth);
+    const WifiTxVector rtsTxVector =
+        senderManager->GetRtsTxVector(receiverAddress, channelWidth);
+    const WifiTxVector ctsTxVector =
+        receiverManager->GetCtsTxVector(senderAddress, rtsTxVector.GetMode());
+    const WifiTxVector ackTxVector =
+        receiverManager->GetAckTxVector(senderAddress, dataTxVector);
+
+    CatraTransactionTiming timing;
+    timing.contentionWindow = senderMac->GetTxop()->GetCw(0);
+    timing.slotTime = senderPhy->GetSlot();
+    timing.rtsTime = WifiPhy::CalculateTxDuration(
+        GetRtsSize(), rtsTxVector, senderPhy->GetPhyBand());
+    timing.ctsTime = WifiPhy::CalculateTxDuration(
+        GetCtsSize(), ctsTxVector, senderPhy->GetPhyBand());
+    timing.tcpFrameTime = WifiPhy::CalculateTxDuration(
+        mpdu->GetSize(), dataTxVector, senderPhy->GetPhyBand());
+    timing.macAckTime = WifiPhy::CalculateTxDuration(
+        GetAckSize(), ackTxVector, senderPhy->GetPhyBand());
+    timing.sifs = senderPhy->GetSifs();
+    timing.difs = timing.sifs + 2 * timing.slotTime;
+    return timing;
+}
+
+void
+ObserveLocalTcpPacket(CatraActiveTimeEstimator* estimator,
+                      Ptr<WifiNetDevice> sender,
+                      Ptr<WifiNetDevice> receiver,
+                      Ipv4Address localAddress,
+                      Ptr<const Packet> packet)
+{
+    Ptr<Packet> copy = packet->Copy();
+    LlcSnapHeader llc;
+    if (copy->RemoveHeader(llc) == 0 || llc.GetType() != 0x0800)
+    {
+        return;
+    }
+
+    Ipv4Header ipv4;
+    if (copy->RemoveHeader(ipv4) == 0 || ipv4.GetProtocol() != 6 ||
+        ipv4.GetDestination() != localAddress)
+    {
+        return;
+    }
+
+    TcpHeader tcp;
+    if (copy->RemoveHeader(tcp) == 0)
+    {
+        return;
+    }
+
+    const bool tcpData = copy->GetSize() > 0;
+    const bool pureTcpAck = copy->GetSize() == 0 && tcp.GetFlags() == TcpHeader::ACK;
+    if (!tcpData && !pureTcpAck)
+    {
+        return; // Ignore SYN, SYN-ACK, FIN, RST, and other control combinations.
+    }
+
+    const CatraTcpPacketType packetType =
+        tcpData ? CatraTcpPacketType::DATA : CatraTcpPacketType::ACK;
+    const CatraTransactionTiming timing = CalculateTransactionTiming(sender, receiver, packet);
+    estimator->NotifyTcpTransaction(packetType, timing);
 }
 
 } // namespace
@@ -73,26 +171,24 @@ main(int argc, char* argv[])
     double estimationPeriodS{2.0};
     double simulationTimeS{8.0};
     uint32_t packetSize{1024};
-    std::string offeredRate{"2Mbps"};
     bool strict{true};
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("ep", "CATRA estimation period in seconds", estimationPeriodS);
     cmd.AddValue("simulationTime", "Probe stop time in seconds", simulationTimeS);
-    cmd.AddValue("packetSize", "UDP payload size used to exercise the PHY", packetSize);
-    cmd.AddValue("offeredRate", "Application offered rate", offeredRate);
-    cmd.AddValue("strict", "Fail if no station records PHY TX activity", strict);
+    cmd.AddValue("packetSize", "TCP segment and BulkSend write size", packetSize);
+    cmd.AddValue("strict", "Fail unless TCP DATA/ACK classification and read-only CW pass", strict);
     cmd.Parse(argc, argv);
 
     NS_ABORT_MSG_IF(estimationPeriodS <= 0.0, "ep must be positive");
     NS_ABORT_MSG_IF(simulationTimeS <= estimationPeriodS, "simulationTime must exceed ep");
 
     std::cout << "\n=== CATRA Algorithm 1 active-time probe ===\n"
-              << "mode=read-only cw_control=disabled packet_classifier=pending\n"
-              << "measurement=exact-local-phy-tx-duration ep_s=" << estimationPeriodS
+              << "mode=paper-algorithm-1 cw_control=read-only packet_classifier=tcp-data-or-pure-ack\n"
+              << "measurement=modeled-complete-wifi-transaction-time ep_s=" << estimationPeriodS
               << " smoothing=0.8*previous+0.2*current\n"
-              << "[PORT-NOTE] The paper's full TCP transaction-time classification is not yet "
-                 "claimed; this probe validates PHY TX accumulation and smoothing.\n";
+              << "[ALGORITHM-MAPPING] MacRx proves destID=localID; LLC/IPv4/TCP parsing classifies "
+                 "TCP-DATA and pure TCP-ACK; current sender CW is read without modification.\n";
 
     // The probe deliberately uses the smallest useful topology: node 0 sends
     // application traffic and node 1 receives it and transmits Wi-Fi control
@@ -136,7 +232,7 @@ main(int argc, char* argv[])
 
     // ConstantPositionMobilityModel preserves the coordinates assigned above
     // for the entire simulation. This removes movement as a source of changing
-    // PHY TX durations, allowing the probe to focus on active-time accounting.
+    // packet delivery behavior, allowing the probe to focus on Algorithm 1.
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
 
     // Install one configured mobility model on every node in the container and
@@ -157,14 +253,14 @@ main(int argc, char* argv[])
         std::cout << std::fixed << std::setprecision(3)
                   << "[MOBILITY-NODE] station=" << index
                   << " node_id=" << nodes.Get(index)->GetId()
-                  << " role=" << (index == 0 ? "udp-source" : "udp-receiver")
+                  << " role=" << (index == 0 ? "tcp-source" : "tcp-receiver")
                   << " model=ConstantPositionMobilityModel"
                   << " position_m=(" << position.x << "," << position.y << "," << position.z
                   << ") velocity_mps=(" << velocity.x << "," << velocity.y << "," << velocity.z
                   << ") distance_from_station0_m=" << distanceFromStation0 << "\n";
     }
     std::cout << "[MOBILITY-EFFECT] positions remain constant; distance controls propagation "
-                 "delay/loss, while mobility contributes no time variation to PHY TX durations.\n";
+                 "delay/loss, while mobility contributes no time variation to packet delivery.\n";
 
     // This executable validates trace accounting, not the calibrated Scenario
     // 1 propagation boundaries. The default Yans channel and a reliable 10 m
@@ -179,7 +275,8 @@ main(int argc, char* argv[])
     wifi.SetStandard(WIFI_STANDARD_80211b);
     wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager",
                                  "DataMode", StringValue("DsssRate11Mbps"),
-                                 "ControlMode", StringValue("DsssRate11Mbps"));
+                                 "ControlMode", StringValue("DsssRate11Mbps"),
+                                 "RtsCtsThreshold", UintegerValue(0));
     WifiMacHelper mac;
     mac.SetType("ns3::AdhocWifiMac");
     NetDeviceContainer devices = wifi.Install(phy, mac, nodes);
@@ -199,53 +296,63 @@ main(int argc, char* argv[])
                   << " control_mode=DsssRate11Mbps\n";
     }
 
-    // Start the receiver before the sender. The sender runs long enough to
-    // cover several complete EPs, making EWMA history visible in the logs.
+    // Use TCP because Algorithm 1 explicitly classifies TCP-DATA and TCP-ACK.
+    // Start the sink before BulkSend; the long-lived saturated connection makes
+    // several complete EPs and their EWMA history visible in the logs.
     const uint16_t port = 9000;
-    UdpServerHelper server(port);
-    ApplicationContainer serverApp = server.Install(nodes.Get(1));
-    serverApp.Start(Seconds(0.5));
-    serverApp.Stop(Seconds(simulationTimeS));
+    Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(packetSize));
+    PacketSinkHelper sink("ns3::TcpSocketFactory",
+                          InetSocketAddress(Ipv4Address::GetAny(), port));
+    ApplicationContainer sinkApp = sink.Install(nodes.Get(1));
+    sinkApp.Start(Seconds(0.5));
+    sinkApp.Stop(Seconds(simulationTimeS));
 
-    OnOffHelper sender("ns3::UdpSocketFactory", InetSocketAddress(interfaces.GetAddress(1), port));
-    sender.SetAttribute("DataRate", DataRateValue(DataRate(offeredRate)));
-    sender.SetAttribute("PacketSize", UintegerValue(packetSize));
-    sender.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
-    sender.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+    BulkSendHelper sender("ns3::TcpSocketFactory",
+                          InetSocketAddress(interfaces.GetAddress(1), port));
+    sender.SetAttribute("SendSize", UintegerValue(packetSize));
+    sender.SetAttribute("MaxBytes", UintegerValue(0));
     ApplicationContainer senderApp = sender.Install(nodes.Get(0));
     senderApp.Start(Seconds(1.0));
     senderApp.Stop(Seconds(simulationTimeS - 0.1));
 
     std::cout << "\n=== Traffic timeline ===\n"
-              << "[TRAFFIC] protocol=UDP source_station=0 destination_station=1"
+              << "[TRAFFIC] protocol=TCP application=BulkSend source_station=0 destination_station=1"
               << " destination=" << interfaces.GetAddress(1) << ":" << port
-              << " offered_rate=" << offeredRate << " packet_size_bytes=" << packetSize << "\n"
-              << "[APPLICATION-TIMELINE] receiver=[0.5," << simulationTimeS
+              << " offered_rate=saturated tcp_segment_bytes=" << packetSize << "\n"
+              << "[APPLICATION-TIMELINE] sink=[0.5," << simulationTimeS
               << "] sender=[1.0," << (simulationTimeS - 0.1)
               << "] estimator=[0.0," << simulationTimeS << "] seconds\n"
-              << "[ALGORITHM] for each station and EP: sum local PHY TX overlap; then "
-                 "TActive(k)=0.8*TActive(k-1)+0.2*rawTx(k); RBRs=TActive/EP.\n";
+              << "[ALGORITHM] for each local-destination TCP DATA/pure ACK: add "
+                 "0.5*CW*ST+RTS+3*SIFS+CTS+TCP_FRAME+MAC_ACK+DIFS; each EP computes "
+                 "TActive(k)=0.8*TActive(k-1)+0.2*t and resets t.\n";
 
     // Ownership must remain per station. unique_ptr keeps callback targets at
     // stable addresses and guarantees that no process-wide CATRA state is
     // accidentally shared between radios.
     std::vector<std::unique_ptr<CatraActiveTimeEstimator>> estimators;
+    std::vector<uint32_t> initialCw;
     for (uint32_t index = 0; index < nodes.GetN(); ++index)
     {
         auto estimator = std::make_unique<CatraActiveTimeEstimator>(
             index, Seconds(estimationPeriodS), 0.8, &PrintSample);
-        // WifiPhyStateHelper reports the exact start and duration of every PHY
-        // state transition. Binding without context is safe because station
-        // identity is already stored inside this estimator instance.
-        Ptr<WifiNetDevice> wifiDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
-        const bool connected = wifiDevice->GetPhy()->GetState()->TraceConnectWithoutContext(
-            "State", MakeCallback(&CatraActiveTimeEstimator::NotifyPhyState, estimator.get()));
-        NS_ABORT_MSG_IF(!connected, "Failed to connect CATRA estimator to PHY State trace");
+        Ptr<WifiNetDevice> receiverDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
+        Ptr<WifiNetDevice> senderDevice =
+            DynamicCast<WifiNetDevice>(devices.Get(index == 0 ? 1 : 0));
+        const bool connected = receiverDevice->GetMac()->TraceConnectWithoutContext(
+            "MacRx",
+            MakeBoundCallback(&ObserveLocalTcpPacket,
+                              estimator.get(),
+                              senderDevice,
+                              receiverDevice,
+                              interfaces.GetAddress(index)));
+        NS_ABORT_MSG_IF(!connected, "Failed to connect CATRA estimator to WifiMac/MacRx");
         estimator->Start(Seconds(0.0));
         estimator->Stop(Seconds(simulationTimeS));
+        initialCw.push_back(receiverDevice->GetMac()->GetTxop()->GetCw(0));
         estimators.push_back(std::move(estimator));
         std::cout << "[CATRA-TRACE-CONNECT] station=" << index
-                  << " trace=WifiPhyStateHelper/State status=connected\n";
+                  << " trace=WifiMac/MacRx local_ipv4=" << interfaces.GetAddress(index)
+                  << " status=connected\n";
     }
 
     // Let the report scheduled exactly at simulationTime execute before the
@@ -253,21 +360,24 @@ main(int argc, char* argv[])
     Simulator::Stop(Seconds(simulationTimeS) + NanoSeconds(1));
     Simulator::Run();
 
-    // Acceptance checks observable behavior rather than merely proving that a
-    // callback was connected: packets must arrive and both radios must report
-    // non-zero smoothed TX time. The receiver's TX time comes from link-layer
-    // control responses rather than UDP application data.
-    Ptr<UdpServer> receiver = DynamicCast<UdpServer>(serverApp.Get(0));
-    const uint64_t receivedPackets = receiver->GetReceived();
-    const bool sourceActive = estimators.at(0)->GetSmoothedActiveTime() > Time(0);
-    const bool receiverActive = estimators.at(1)->GetSmoothedActiveTime() > Time(0);
-    const bool passed = receivedPackets > 0 && sourceActive && receiverActive;
+    Ptr<PacketSink> receiver = DynamicCast<PacketSink>(sinkApp.Get(0));
+    const uint64_t receivedBytes = receiver->GetTotalRx();
+    const bool sourceSawTcpAcks = estimators.at(0)->GetTotalTcpAckPackets() > 0;
+    const bool receiverSawTcpData = estimators.at(1)->GetTotalTcpDataPackets() > 0;
+    bool cwUnchanged = true;
+    for (uint32_t index = 0; index < devices.GetN(); ++index)
+    {
+        Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice>(devices.Get(index));
+        cwUnchanged = cwUnchanged && device->GetMac()->GetTxop()->GetCw(0) == initialCw.at(index);
+    }
+    const bool passed =
+        receivedBytes > 0 && sourceSawTcpAcks && receiverSawTcpData && cwUnchanged;
 
     std::cout << "\n=== Active-time probe acceptance ===\n"
-              << "received_packets=" << receivedPackets << "\n"
-              << "source_tx_active=" << (sourceActive ? "PASS" : "FAIL") << "\n"
-              << "receiver_control_tx_active=" << (receiverActive ? "PASS" : "FAIL") << "\n"
-              << "cw_unchanged=PASS\n"
+              << "tcp_sink_received_bytes=" << receivedBytes << "\n"
+              << "source_received_pure_tcp_ack=" << (sourceSawTcpAcks ? "PASS" : "FAIL") << "\n"
+              << "receiver_received_tcp_data=" << (receiverSawTcpData ? "PASS" : "FAIL") << "\n"
+              << "cw_read_only=" << (cwUnchanged ? "PASS" : "FAIL") << "\n"
               << "overall=" << (passed ? "PASS" : "FAIL") << "\n";
 
     Simulator::Destroy();

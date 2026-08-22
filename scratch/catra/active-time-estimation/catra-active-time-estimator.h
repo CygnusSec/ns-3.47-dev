@@ -6,14 +6,30 @@
 #define CATRA_ACTIVE_TIME_ESTIMATOR_H
 
 #include "ns3/nstime.h"
-#include "ns3/wifi-phy-state.h"
-
 #include <cstdint>
 #include <functional>
-#include <string>
 
 namespace ns3
 {
+
+enum class CatraTcpPacketType
+{
+    DATA,
+    ACK
+};
+
+/** Timing terms for one complete RTS/CTS/DATA-or-TCP-ACK/MAC-ACK transaction. */
+struct CatraTransactionTiming
+{
+    uint32_t contentionWindow{};
+    Time slotTime{};
+    Time rtsTime{};
+    Time ctsTime{};
+    Time tcpFrameTime{};
+    Time macAckTime{};
+    Time sifs{};
+    Time difs{};
+};
 
 /**
  * Immutable reporting data produced when one estimation period (EP) closes.
@@ -27,21 +43,29 @@ struct CatraActiveTimeSample
     uint32_t stationIndex{};    //!< Scenario-local station index owning this measurement.
     Time periodStart{};         //!< Inclusive beginning of the completed EP.
     Time periodEnd{};           //!< Exclusive end of the completed EP.
-    Time rawTxTime{};           //!< Sum of local PHY TX durations observed during this EP.
+    Time rawActiveTime{};       //!< Algorithm 1 accumulator t for the completed EP.
     Time previousSmoothedActiveTime{}; //!< TActive carried into this EP.
     Time smoothedActiveTime{};  //!< Algorithm 1 TActive after applying EWMA smoothing.
     double realBandwidthRatio{}; //!< RBRs = smoothedActiveTime / EP.
-    uint64_t txStateEvents{};   //!< Number of TX state transitions, useful for trace auditing.
+    uint64_t tcpDataPackets{};  //!< TCP-DATA transactions counted in this EP.
+    uint64_t tcpAckPackets{};   //!< TCP-ACK transactions counted in this EP.
+    double averageContentionWindow{}; //!< Mean sender CW read for accepted packets.
+    Time slotTime{};             //!< Sender slot time (constant in this probe).
+    Time expectedBackoffTime{}; //!< Sum of 0.5 * CW * slot-time terms.
+    Time rtsTime{};             //!< Sum of modeled RTS durations.
+    Time ctsTime{};             //!< Sum of modeled CTS durations.
+    Time tcpFrameTime{};        //!< Sum of TCP-DATA or TCP-ACK frame durations.
+    Time macAckTime{};          //!< Sum of modeled MAC ACK durations.
+    Time interframeTime{};      //!< Sum of three SIFS plus one DIFS per transaction.
 };
 
 /**
- * Read-only implementation of the smoothing part of CATRA Algorithm 1.
+ * Read-only implementation of CATRA Algorithm 1 active-time estimation.
  *
- * The paper estimates the complete time occupied by TCP DATA and TCP ACK
- * transactions.  ns-3 exposes exact PHY state durations, so this first port
- * records local PHY TX time without changing the MAC.  Keeping this observable
- * separate makes the 0.8/0.2 estimator independently testable before packet
- * classification and contention-window control are enabled.
+ * Each successfully received TCP DATA or pure TCP ACK contributes the paper's
+ * complete modeled transaction time: expected backoff, RTS, CTS, three SIFS,
+ * the TCP-bearing data frame, a MAC ACK, and DIFS. The estimator does not alter
+ * the contention window; it only reads the current value supplied by the caller.
  */
 class CatraActiveTimeEstimator
 {
@@ -62,14 +86,9 @@ class CatraActiveTimeEstimator
                              double historyWeight,
                              ReportCallback reportCallback);
 
-    /**
-     * Consume a PHY state transition.
-     *
-     * Only TX contributes to this read-only port. RX, CCA_BUSY, IDLE, SLEEP,
-     * and OFF transitions are deliberately ignored. The callback signature
-     * matches WifiPhyStateHelper::StateTracedCallback exactly.
-     */
-    void NotifyPhyState(Time start, Time duration, WifiPhyState state);
+    /** Count one local-destination TCP transaction using Algorithm 1. */
+    void NotifyTcpTransaction(CatraTcpPacketType packetType,
+                              const CatraTransactionTiming& timing);
 
     /**
      * Start periodic reporting. The first interval is
@@ -89,12 +108,12 @@ class CatraActiveTimeEstimator
     /** Return the last computed RBRs = TActive / EP. */
     double GetRealBandwidthRatio() const;
 
+    uint64_t GetTotalTcpDataPackets() const;
+    uint64_t GetTotalTcpAckPackets() const;
+
   private:
     /** Finalize one EP, report it, reset raw counters, and schedule the next EP. */
     void ClosePeriod();
-
-    /** Add only the part of a TX interval that overlaps the current EP. */
-    void AddTxOverlap(Time start, Time end);
 
     uint32_t m_stationIndex;         //!< Owner of this per-station estimator.
     Time m_estimationPeriod;         //!< Fixed EP used for reports and RBRs normalization.
@@ -103,9 +122,20 @@ class CatraActiveTimeEstimator
     Time m_periodStart;              //!< Beginning of the currently open EP.
     Time m_periodEnd;                //!< End boundary of the currently open EP.
     Time m_stopTime;                 //!< Last boundary that may produce a report.
-    Time m_rawTxTime;                //!< Unsmooth TX duration accumulated in the current EP.
+    Time m_rawActiveTime;            //!< Algorithm 1 accumulator t for the current EP.
     Time m_smoothedActiveTime;       //!< TActive carried between consecutive periods.
-    uint64_t m_txStateEvents{0};     //!< TX transitions accepted in the current EP.
+    uint64_t m_tcpDataPackets{0};
+    uint64_t m_tcpAckPackets{0};
+    uint64_t m_totalTcpDataPackets{0};
+    uint64_t m_totalTcpAckPackets{0};
+    uint64_t m_contentionWindowSum{0};
+    Time m_slotTime;
+    Time m_expectedBackoffTime;
+    Time m_rtsTime;
+    Time m_ctsTime;
+    Time m_tcpFrameTime;
+    Time m_macAckTime;
+    Time m_interframeTime;
     bool m_started{false};           //!< Guards against accidental duplicate schedules.
 };
 

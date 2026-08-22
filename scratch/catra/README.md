@@ -90,25 +90,46 @@ Phase 3 owns static host-route population and bidirectional UDP validation.
 
 ### Algorithm 1 active-time measurement record
 
-The read-only `CatraActiveTimeEstimator` implements the paper's two-second
-period and exponential smoothing rule:
+The read-only `CatraActiveTimeEstimator` implements Algorithm 1's packet
+classification, complete modeled transaction-time sum, two-second period, and
+exponential smoothing rule. The probe uses successful local `MacRx` delivery as
+the ns-3.47 mapping of `destID == localID`, then removes LLC, IPv4, and TCP
+headers to distinguish TCP DATA from pure TCP ACK packets. SYN, FIN, RST, and
+other TCP control combinations are excluded.
+
+For every accepted TCP DATA or TCP ACK, it reads the sender's current CW and
+computes:
+
+```text
+t += 0.5 * CW * ST + T_RTS + SIFS + T_CTS + SIFS
+     + T_TCP_DATA_OR_ACK + SIFS + T_MAC_ACK + DIFS
+```
+
+The individual frame durations come from `WifiPhy::CalculateTxDuration` using
+the sender/receiver station managers' actual TX vectors. `ST` and `SIFS` come
+from the sender PHY, while `DIFS = SIFS + 2 * ST` for this non-QoS 802.11b DCF
+probe. RTS/CTS is forced with `RtsCtsThreshold=0` so the simulated exchange and
+the paper formula have the same protection sequence.
+
+At every estimation period boundary:
 
 ```text
 TActive = 0.8 * previous_TActive + 0.2 * current_active_time
 RBRs = TActive / EP
 ```
 
-It consumes exact `WifiPhyStateHelper::State` TX durations per station, splits
-accounting at estimation-period boundaries, clears the raw accumulator after
-each report, and never changes the contention window. The accompanying
-`catra-active-time-probe` connects the estimator to real Wi-Fi PHY traces and
-prints every raw and smoothed period.
+The accumulator `t` and per-period packet/component counters are reset after
+each report, while smoothed `TActive` is retained as EWMA history. The estimator
+only reads CW; it never changes it. This is an ns-3.47 `PORT` of Algorithm 1
+rather than a claim that the paper's NS-2 header representation exists unchanged:
+`MacRx` exposes the successfully delivered Wi-Fi data payload, not a single
+packet object simultaneously containing a MAC ACK header and its original TCP
+DATA header. Successful unicast `MacRx` is therefore the transaction-completion
+event used for both branches.
 
-This is intentionally labeled a `PORT` measurement. The paper attributes a
-complete RTS/CTS/DATA/ACK transaction to each classified TCP DATA or TCP ACK
-packet, while this first ns-3 slice measures exact local PHY TX duration. TCP
-packet classification, `nSEND/nTX/nCS`, `FBRs`, and CW adaptation remain later
-work and must not be inferred from this probe.
+`RBRs = TActive / EP` is reported for the later CATRA stages. `nSEND`, `nTX`,
+`nCS`, `FBRs`, CW adaptation, and CATRA TCP control remain later work and must
+not be inferred from this Algorithm 1 probe.
 
 Run the strict probe with:
 
