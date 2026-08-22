@@ -90,12 +90,13 @@ Phase 3 owns static host-route population and bidirectional UDP validation.
 
 ### Algorithm 1 active-time measurement record
 
-The read-only `CatraActiveTimeEstimator` implements Algorithm 1's packet
-classification, complete modeled transaction-time sum, two-second period, and
-exponential smoothing rule. The probe uses successful local `MacRx` delivery as
-the ns-3.47 mapping of `destID == localID`, then removes LLC, IPv4, and TCP
-headers to distinguish TCP DATA from pure TCP ACK packets. SYN, FIN, RST, and
-other TCP control combinations are excluded.
+The read-only `CatraActiveTimeEstimator` implements Algorithm 1's two packet
+conditions, complete modeled transaction-time sum, two-second period, and
+exponential smoothing rule. For the first branch, `AckedMpdu` proves that an
+outgoing TCP-DATA MPDU received its MAC ACK and supplies the original MPDU for
+TCP classification. For the second branch, non-promiscuous `MacRx` plus an
+explicit IPv4 destination comparison identifies a local-destination MAC DATA
+MPDU carrying a pure TCP ACK. SYN, FIN, RST, and other controls are excluded.
 
 For every accepted TCP DATA or TCP ACK, it reads the sender's current CW and
 computes:
@@ -121,11 +122,11 @@ RBRs = TActive / EP
 The accumulator `t` and per-period packet/component counters are reset after
 each report, while smoothed `TActive` is retained as EWMA history. The estimator
 only reads CW; it never changes it. This is an ns-3.47 `PORT` of Algorithm 1
-rather than a claim that the paper's NS-2 header representation exists unchanged:
-`MacRx` exposes the successfully delivered Wi-Fi data payload, not a single
-packet object simultaneously containing a MAC ACK header and its original TCP
-DATA header. Successful unicast `MacRx` is therefore the transaction-completion
-event used for both branches.
+rather than a claim that the paper's NS-2 header representation exists unchanged.
+The paper's combined `MacHeader.Type == ACK` and `TcpHeader.Type == TCPDATA`
+condition is represented by `AckedMpdu`: the trace is the MAC-ACK success event,
+and its argument is the acknowledged TCP-bearing MPDU. `MacRx` is used only for
+the paper's MAC-DATA/pure-TCP-ACK branch.
 
 `RBRs = TActive / EP` is reported for the later CATRA stages. `nSEND`, `nTX`,
 `nCS`, `FBRs`, CW adaptation, and CATRA TCP control remain later work and must
