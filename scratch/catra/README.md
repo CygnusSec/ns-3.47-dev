@@ -20,8 +20,12 @@ research scenarios can use separate sibling directories under `scratch`:
 scratch/catra/
 ├── CMakeLists.txt
 ├── README.md
-├── catra-active-time-estimator.cc/.h
-├── catra-active-time-probe.cc
+├── active-time-estimation/
+│   ├── catra-active-time-estimator.cc/.h
+│   ├── catra-algorithm-packet.cc/.h
+│   ├── catra-active-time-probe.cc
+│   ├── catra-mac-transaction-tracker.cc/.h
+│   └── observe-mac-frame.cc/.h
 ├── catra-phy-range-probe.cc
 └── catra-scenario1.cc
 ```

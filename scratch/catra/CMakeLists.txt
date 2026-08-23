@@ -25,6 +25,9 @@ build_exec(
   EXECNAME_PREFIX scratch_catra_active-time-estimation_
   SOURCE_FILES active-time-estimation/catra-active-time-probe.cc
                active-time-estimation/catra-active-time-estimator.cc
+               active-time-estimation/catra-algorithm-packet.cc
+               active-time-estimation/catra-mac-transaction-tracker.cc
+               active-time-estimation/observe-mac-frame.cc
   LIBRARIES_TO_LINK "${ns3-libs}"
                     "${ns3-contrib-libs}"
   EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/active-time-estimation
