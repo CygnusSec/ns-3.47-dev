@@ -92,11 +92,12 @@ Phase 3 owns static host-route population and bidirectional UDP validation.
 
 The read-only `CatraActiveTimeEstimator` implements Algorithm 1's two packet
 conditions, complete modeled transaction-time sum, two-second period, and
-exponential smoothing rule. Non-promiscuous `MacRx` plus an explicit IPv4
-destination comparison implements `p.destID == localID`. A local-destination
-TCP-DATA packet represents the first branch and implies the receiver's MAC ACK
-response. A reverse-flow pure TCP ACK represents the second branch. Flow
-direction tracking excludes the final ACK of the TCP three-way handshake.
+exponential smoothing rule. `MonitorSnifferRx` preserves the `WifiMacHeader`, so
+`Addr1 == local MAC` implements `p.destID == localID`. A received MAC DATA frame
+carrying TCP-DATA is stored as pending and counted only when `MonitorSnifferTx`
+observes the local station transmit its paired normal MAC ACK. A received MAC
+DATA frame carrying a pure TCP ACK represents the second branch. No additional
+flow-direction filter is applied because Algorithm 1 does not specify one.
 
 For every accepted TCP DATA or TCP ACK, it reads the sender's current CW and
 computes:
@@ -123,10 +124,13 @@ The accumulator `t` and per-period packet/component counters are reset after
 each report, while smoothed `TActive` is retained as EWMA history. The estimator
 only reads CW; it never changes it. This is an ns-3.47 `PORT` of Algorithm 1
 rather than a claim that the paper's NS-2 header representation exists unchanged.
-Both branches start from the paper's local-destination packet condition. For a
-successfully delivered unicast TCP-DATA MPDU, ns-3's receiver MAC generates the
-MAC ACK represented by the first branch; the ACK control frame is not treated
-as if it directly contained the TCP header.
+The first branch is reconstructed as one logical transaction from two physical
+frames: the received TCP-DATA MAC DATA frame and the transmitted MAC ACK. This
+preserves both header tests without claiming that a physical ACK contains TCP.
+Both observations are assembled into `CatraAlgorithmPacket p`, and
+`ProcessAlgorithmPacket` follows the paper verbatim: test `destID == localID`,
+then `ACK && TCPDATA`, otherwise `DATA && TCPACK`. No extra classifier condition
+is inserted between those tests and the active-time accumulator.
 
 `RBRs = TActive / EP` is reported for the later CATRA stages. `nSEND`, `nTX`,
 `nCS`, `FBRs`, CW adaptation, and CATRA TCP control remain later work and must

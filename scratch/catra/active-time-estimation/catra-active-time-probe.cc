@@ -2,10 +2,10 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-// This executable validates CATRA Algorithm 1 from packets delivered to each
-// local station. MacRx establishes p.destID == localID; the received MAC DATA
-// payload is then classified as TCP-DATA or reverse-flow pure TCP-ACK. The
-// probe reads CW and never changes channel-access state.
+// This executable validates CATRA Algorithm 1 from complete 802.11 frames.
+// MonitorSnifferRx checks p.destID == localID and classifies the TCP payload;
+// MonitorSnifferTx confirms that the local station actually transmits the MAC
+// ACK paired with a pending TCP-DATA frame. CW remains read-only.
 
 #include "catra-active-time-estimator.h"
 
@@ -18,9 +18,9 @@
 
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <memory>
-#include <set>
-#include <tuple>
+#include <optional>
 #include <vector>
 
 using namespace ns3;
@@ -131,37 +131,19 @@ enum class ParsedTcpPacketType
     OTHER
 };
 
-struct CatraFlowKey
+enum class CatraMacHeaderType
 {
-    Ipv4Address source;
-    Ipv4Address destination;
-    uint16_t sourcePort;
-    uint16_t destinationPort;
-
-    auto Tie() const
-    {
-        return std::tie(source, destination, sourcePort, destinationPort);
-    }
-
-    bool operator<(const CatraFlowKey& other) const
-    {
-        return Tie() < other.Tie();
-    }
-
-    CatraFlowKey Reverse() const
-    {
-        return {destination, source, destinationPort, sourcePort};
-    }
+    ACK,
+    DATA
 };
 
 struct ParsedTcpPacket
 {
     ParsedTcpPacketType type{ParsedTcpPacketType::OTHER};
-    CatraFlowKey flow{};
 };
 
 ParsedTcpPacket
-ParseLocalTcpPacket(Ptr<const Packet> packet, Ipv4Address localAddress)
+ParseTcpPayload(Ptr<const Packet> packet)
 {
     ParsedTcpPacket parsed;
     Ptr<Packet> copy = packet->Copy();
@@ -172,8 +154,7 @@ ParseLocalTcpPacket(Ptr<const Packet> packet, Ipv4Address localAddress)
     }
 
     Ipv4Header ipv4;
-    if (copy->RemoveHeader(ipv4) == 0 || ipv4.GetProtocol() != 6 ||
-        ipv4.GetDestination() != localAddress)
+    if (copy->RemoveHeader(ipv4) == 0 || ipv4.GetProtocol() != 6)
     {
         return parsed;
     }
@@ -184,10 +165,6 @@ ParseLocalTcpPacket(Ptr<const Packet> packet, Ipv4Address localAddress)
         return parsed;
     }
 
-    parsed.flow = {ipv4.GetSource(),
-                   ipv4.GetDestination(),
-                   tcp.GetSourcePort(),
-                   tcp.GetDestinationPort()};
     const bool tcpData = copy->GetSize() > 0;
     const bool pureTcpAck = copy->GetSize() == 0 && tcp.GetFlags() == TcpHeader::ACK;
     if (tcpData)
@@ -201,45 +178,170 @@ ParseLocalTcpPacket(Ptr<const Packet> packet, Ipv4Address localAddress)
     return parsed;
 }
 
-void
-ObserveLocalTcpPacket(CatraActiveTimeEstimator* estimator,
-                      std::set<CatraFlowKey>* dataFlows,
-                      Ptr<WifiNetDevice> peerSender,
-                      Ptr<WifiNetDevice> localReceiver,
-                      Ipv4Address localAddress,
-                      Ptr<const Packet> packet)
+struct CatraAlgorithmPacket
 {
-    // MacRx is non-promiscuous, and the explicit IPv4 comparison implements
-    // Algorithm 1's outer p.destID == localID condition. A successfully
-    // received unicast TCP-DATA MPDU causes the local 802.11 MAC to send the
-    // MAC ACK represented by the first branch of the paper.
-    const ParsedTcpPacket parsed = ParseLocalTcpPacket(packet, localAddress);
-    if (parsed.type == ParsedTcpPacketType::OTHER)
+    Mac48Address destId;
+    Mac48Address localId;
+    CatraMacHeaderType macHeaderType;
+    ParsedTcpPacketType tcpHeaderType;
+    CatraTransactionTiming timing;
+};
+
+void
+ProcessAlgorithmPacket(CatraActiveTimeEstimator* estimator, const CatraAlgorithmPacket& p)
+{
+    // Algorithm 1 is kept in the same order as the paper:
+    //   if p.destID == localID then
+    //     if MacHeader.Type == ACK and TcpHeader.Type == TCPDATA ...
+    //     else if MacHeader.Type == DATA and TcpHeader.Type == TCPACK ...
+    if (p.destId != p.localId)
+    {
+        return;
+    }
+    if (p.macHeaderType == CatraMacHeaderType::ACK &&
+        p.tcpHeaderType == ParsedTcpPacketType::DATA)
+    {
+        estimator->NotifyTcpTransaction(CatraTcpPacketType::DATA, p.timing);
+    }
+    else if (p.macHeaderType == CatraMacHeaderType::DATA &&
+             p.tcpHeaderType == ParsedTcpPacketType::PURE_ACK)
+    {
+        estimator->NotifyTcpTransaction(CatraTcpPacketType::ACK, p.timing);
+    }
+}
+
+struct PendingTcpData
+{
+    Mac48Address destId;
+    Mac48Address localId;
+    CatraTransactionTiming timing;
+};
+
+class CatraMacTransactionTracker
+{
+  public:
+    void Store(Mac48Address sender, const PendingTcpData& pending)
+    {
+        m_pendingTcpData.insert_or_assign(sender, pending);
+        ++m_tcpDataFramesObserved;
+    }
+
+    std::optional<PendingTcpData> Take(Mac48Address sender)
+    {
+        const auto it = m_pendingTcpData.find(sender);
+        if (it == m_pendingTcpData.end())
+        {
+            return std::nullopt;
+        }
+        PendingTcpData pending = it->second;
+        m_pendingTcpData.erase(it);
+        ++m_macAcksMatched;
+        return pending;
+    }
+
+    uint64_t GetTcpDataFramesObserved() const
+    {
+        return m_tcpDataFramesObserved;
+    }
+
+    uint64_t GetMacAcksMatched() const
+    {
+        return m_macAcksMatched;
+    }
+
+    std::size_t GetPendingCount() const
+    {
+        return m_pendingTcpData.size();
+    }
+
+  private:
+    std::map<Mac48Address, PendingTcpData> m_pendingTcpData;
+    uint64_t m_tcpDataFramesObserved{0};
+    uint64_t m_macAcksMatched{0};
+};
+
+void
+ObserveMacFrameRx(CatraActiveTimeEstimator* estimator,
+                  CatraMacTransactionTracker* tracker,
+                  Ptr<WifiNetDevice> peerSender,
+                  Ptr<WifiNetDevice> localReceiver,
+                  Ptr<const Packet> packet,
+                  uint16_t channelFreqMhz,
+                  WifiTxVector txVector,
+                  MpduInfo mpduInfo,
+                  SignalNoiseDbm signalNoise,
+                  uint16_t staId)
+{
+    Ptr<Packet> payload = packet->Copy();
+    WifiMacHeader macHeader;
+    if (payload->RemoveHeader(macHeader) == 0)
     {
         return;
     }
 
-    CatraTcpPacketType packetType;
-    if (parsed.type == ParsedTcpPacketType::DATA)
+    const Mac48Address localMac = Mac48Address::ConvertFrom(localReceiver->GetAddress());
+    if (macHeader.GetAddr1() != localMac || !macHeader.IsData())
     {
-        dataFlows->insert(parsed.flow);
-        packetType = CatraTcpPacketType::DATA;
-    }
-    else
-    {
-        // A header-only ACK is a data-transfer TCP-ACK only after a TCP-DATA
-        // packet has established the opposite flow direction. This rejects the
-        // final ACK of the TCP three-way handshake at the receiver station.
-        if (!dataFlows->contains(parsed.flow.Reverse()))
-        {
-            return;
-        }
-        packetType = CatraTcpPacketType::ACK;
+        return;
     }
 
-    const CatraTransactionTiming timing =
-        CalculateTransactionTiming(peerSender, localReceiver, packet);
-    estimator->NotifyTcpTransaction(packetType, timing);
+    WifiMacTrailer trailer;
+    if (payload->RemoveTrailer(trailer) == 0)
+    {
+        return;
+    }
+
+    const ParsedTcpPacket parsed = ParseTcpPayload(payload);
+    if (parsed.type == ParsedTcpPacketType::DATA)
+    {
+        // Algorithm 1 branch 1 is completed only when MonitorSnifferTx later
+        // observes this local receiver transmitting an ACK to the DATA sender.
+        tracker->Store(macHeader.GetAddr2(),
+                       {macHeader.GetAddr1(),
+                        localMac,
+                        CalculateTransactionTiming(peerSender, localReceiver, payload)});
+    }
+    else if (parsed.type == ParsedTcpPacketType::PURE_ACK)
+    {
+        ProcessAlgorithmPacket(
+            estimator,
+            {macHeader.GetAddr1(),
+             localMac,
+             CatraMacHeaderType::DATA,
+             ParsedTcpPacketType::PURE_ACK,
+             CalculateTransactionTiming(peerSender, localReceiver, payload)});
+    }
+}
+
+void
+ObserveMacFrameTx(CatraActiveTimeEstimator* estimator,
+                  CatraMacTransactionTracker* tracker,
+                  Ptr<const Packet> packet,
+                  uint16_t channelFreqMhz,
+                  WifiTxVector txVector,
+                  MpduInfo mpduInfo,
+                  uint16_t staId)
+{
+    Ptr<Packet> copy = packet->Copy();
+    WifiMacHeader macHeader;
+    if (copy->RemoveHeader(macHeader) == 0 || !macHeader.IsAck())
+    {
+        return;
+    }
+
+    // A normal ACK carries the receiver address of the DATA sender in Addr1.
+    // Pair it with the TCP-DATA frame most recently received from that sender.
+    const auto pending = tracker->Take(macHeader.GetAddr1());
+    if (!pending)
+    {
+        return;
+    }
+    ProcessAlgorithmPacket(estimator,
+                           {pending->destId,
+                            pending->localId,
+                            CatraMacHeaderType::ACK,
+                            ParsedTcpPacketType::DATA,
+                            pending->timing});
 }
 
 } // namespace
@@ -266,12 +368,12 @@ main(int argc, char* argv[])
 
     std::cout << "\n=== CATRA Algorithm 1 active-time probe ===\n"
               << "mode=paper-algorithm-1 cw_control=read-only "
-                 "packet_classifier=local-destination-tcp-data-or-reverse-flow-tcp-ack\n"
+                 "packet_classifier=correlated-mac-ack-tcp-data-or-mac-data-tcp-ack\n"
               << "measurement=modeled-complete-wifi-transaction-time ep_s=" << estimationPeriodS
               << " smoothing=0.8*previous+0.2*current\n"
-              << "[ALGORITHM-MAPPING] MacRx plus IPv4 destination parsing implements "
-                 "p.destID=localID; received TCP-DATA implies the local MAC ACK response; "
-                 "reverse-flow pure ACK maps TCPACK; CW is read only.\n";
+              << "[ALGORITHM-MAPPING] MonitorSnifferRx checks MAC destination=local and "
+                 "parses TCP; MonitorSnifferTx must observe the paired local MAC ACK before "
+                 "TCP-DATA is counted; MAC-DATA plus pure TCP ACK maps TCPACK.\n";
 
     // The probe deliberately uses the smallest useful topology: node 0 sends
     // application traffic and node 1 receives it and transmits Wi-Fi control
@@ -405,8 +507,9 @@ main(int argc, char* argv[])
               << "[APPLICATION-TIMELINE] sink=[0.5," << simulationTimeS
               << "] sender=[1.0," << (simulationTimeS - 0.1)
               << "] estimator=[0.0," << simulationTimeS << "] seconds\n"
-              << "[ALGORITHM] for each local-destination TCP-DATA or reverse-flow "
-                 "pure TCP-ACK received in a MAC-DATA MPDU: add "
+              << "[ALGORITHM] count local-destination TCP-DATA only after its paired local "
+                 "MAC ACK transmission; count local-destination MAC-DATA carrying "
+                 "pure TCP-ACK; add "
                  "0.5*CW*ST+RTS+3*SIFS+CTS+TCP_FRAME+MAC_ACK+DIFS; each EP computes "
                  "TActive(k)=0.8*TActive(k-1)+0.2*t and resets t.\n";
 
@@ -414,31 +517,37 @@ main(int argc, char* argv[])
     // stable addresses and guarantees that no process-wide CATRA state is
     // accidentally shared between radios.
     std::vector<std::unique_ptr<CatraActiveTimeEstimator>> estimators;
+    std::vector<std::unique_ptr<CatraMacTransactionTracker>> trackers;
     std::vector<uint32_t> initialCw;
-    std::set<CatraFlowKey> dataFlows;
     for (uint32_t index = 0; index < nodes.GetN(); ++index)
     {
         auto estimator = std::make_unique<CatraActiveTimeEstimator>(
             index, Seconds(estimationPeriodS), 0.8, &PrintSample);
+        auto tracker = std::make_unique<CatraMacTransactionTracker>();
         Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
         Ptr<WifiNetDevice> peerDevice =
             DynamicCast<WifiNetDevice>(devices.Get(index == 0 ? 1 : 0));
-        const bool receivedConnected = localDevice->GetMac()->TraceConnectWithoutContext(
-            "MacRx",
-            MakeBoundCallback(&ObserveLocalTcpPacket,
+        const bool receivedConnected = localDevice->GetPhy()->TraceConnectWithoutContext(
+            "MonitorSnifferRx",
+            MakeBoundCallback(&ObserveMacFrameRx,
                               estimator.get(),
-                              &dataFlows,
+                              tracker.get(),
                               peerDevice,
-                              localDevice,
-                              interfaces.GetAddress(index)));
+                              localDevice));
+        const bool transmittedConnected = localDevice->GetPhy()->TraceConnectWithoutContext(
+            "MonitorSnifferTx",
+            MakeBoundCallback(&ObserveMacFrameTx, estimator.get(), tracker.get()));
         NS_ABORT_MSG_IF(!receivedConnected,
-                        "Failed to connect CATRA estimator to WifiMac/MacRx");
+                        "Failed to connect CATRA estimator to WifiPhy/MonitorSnifferRx");
+        NS_ABORT_MSG_IF(!transmittedConnected,
+                        "Failed to connect CATRA estimator to WifiPhy/MonitorSnifferTx");
         estimator->Start(Seconds(0.0));
         estimator->Stop(Seconds(simulationTimeS));
         initialCw.push_back(localDevice->GetMac()->GetTxop()->GetCw(0));
         estimators.push_back(std::move(estimator));
+        trackers.push_back(std::move(tracker));
         std::cout << "[CATRA-TRACE-CONNECT] station=" << index
-                  << " trace=WifiMac/MacRx local_ipv4="
+                  << " traces=WifiPhy/MonitorSnifferRx+WifiPhy/MonitorSnifferTx local_ipv4="
                   << interfaces.GetAddress(index)
                   << " status=connected\n";
     }
@@ -452,8 +561,10 @@ main(int argc, char* argv[])
     const uint64_t receivedBytes = receiver->GetTotalRx();
     const bool receiverSawTcpData = estimators.at(1)->GetTotalTcpDataPackets() > 0;
     const bool sourceSawTcpAcks = estimators.at(0)->GetTotalTcpAckPackets() > 0;
-    const bool sourceDidNotCountTcpData = estimators.at(0)->GetTotalTcpDataPackets() == 0;
-    const bool receiverDidNotCountTcpAcks = estimators.at(1)->GetTotalTcpAckPackets() == 0;
+    const bool receiverMacAckCorrelationComplete =
+        trackers.at(1)->GetMacAcksMatched() > 0 &&
+        trackers.at(1)->GetMacAcksMatched() == estimators.at(1)->GetTotalTcpDataPackets() &&
+        trackers.at(1)->GetPendingCount() == 0;
     bool cwUnchanged = true;
     for (uint32_t index = 0; index < devices.GetN(); ++index)
     {
@@ -461,16 +572,18 @@ main(int argc, char* argv[])
         cwUnchanged = cwUnchanged && device->GetMac()->GetTxop()->GetCw(0) == initialCw.at(index);
     }
     const bool passed = receivedBytes > 0 && receiverSawTcpData && sourceSawTcpAcks &&
-                        sourceDidNotCountTcpData && receiverDidNotCountTcpAcks && cwUnchanged;
+                        receiverMacAckCorrelationComplete && cwUnchanged;
 
     std::cout << "\n=== Active-time probe acceptance ===\n"
               << "tcp_sink_received_bytes=" << receivedBytes << "\n"
               << "receiver_received_tcp_data=" << (receiverSawTcpData ? "PASS" : "FAIL") << "\n"
               << "source_received_data_tcp_ack=" << (sourceSawTcpAcks ? "PASS" : "FAIL") << "\n"
-              << "source_tcp_data_count_zero="
-              << (sourceDidNotCountTcpData ? "PASS" : "FAIL") << "\n"
-              << "receiver_handshake_ack_excluded="
-              << (receiverDidNotCountTcpAcks ? "PASS" : "FAIL") << "\n"
+              << "receiver_tcp_data_frames_observed="
+              << trackers.at(1)->GetTcpDataFramesObserved() << "\n"
+              << "receiver_mac_acks_matched=" << trackers.at(1)->GetMacAcksMatched() << "\n"
+              << "receiver_pending_tcp_data=" << trackers.at(1)->GetPendingCount() << "\n"
+              << "receiver_mac_ack_correlation="
+              << (receiverMacAckCorrelationComplete ? "PASS" : "FAIL") << "\n"
               << "cw_read_only=" << (cwUnchanged ? "PASS" : "FAIL") << "\n"
               << "overall=" << (passed ? "PASS" : "FAIL") << "\n";
 
