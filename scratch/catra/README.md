@@ -92,11 +92,11 @@ Phase 3 owns static host-route population and bidirectional UDP validation.
 
 The read-only `CatraActiveTimeEstimator` implements Algorithm 1's two packet
 conditions, complete modeled transaction-time sum, two-second period, and
-exponential smoothing rule. For the first branch, `AckedMpdu` proves that an
-outgoing TCP-DATA MPDU received its MAC ACK and supplies the original MPDU for
-TCP classification. For the second branch, non-promiscuous `MacRx` plus an
-explicit IPv4 destination comparison identifies a local-destination MAC DATA
-MPDU carrying a pure TCP ACK. SYN, FIN, RST, and other controls are excluded.
+exponential smoothing rule. Non-promiscuous `MacRx` plus an explicit IPv4
+destination comparison implements `p.destID == localID`. A local-destination
+TCP-DATA packet represents the first branch and implies the receiver's MAC ACK
+response. A reverse-flow pure TCP ACK represents the second branch. Flow
+direction tracking excludes the final ACK of the TCP three-way handshake.
 
 For every accepted TCP DATA or TCP ACK, it reads the sender's current CW and
 computes:
@@ -123,10 +123,10 @@ The accumulator `t` and per-period packet/component counters are reset after
 each report, while smoothed `TActive` is retained as EWMA history. The estimator
 only reads CW; it never changes it. This is an ns-3.47 `PORT` of Algorithm 1
 rather than a claim that the paper's NS-2 header representation exists unchanged.
-The paper's combined `MacHeader.Type == ACK` and `TcpHeader.Type == TCPDATA`
-condition is represented by `AckedMpdu`: the trace is the MAC-ACK success event,
-and its argument is the acknowledged TCP-bearing MPDU. `MacRx` is used only for
-the paper's MAC-DATA/pure-TCP-ACK branch.
+Both branches start from the paper's local-destination packet condition. For a
+successfully delivered unicast TCP-DATA MPDU, ns-3's receiver MAC generates the
+MAC ACK represented by the first branch; the ACK control frame is not treated
+as if it directly contained the TCP header.
 
 `RBRs = TActive / EP` is reported for the later CATRA stages. `nSEND`, `nTX`,
 `nCS`, `FBRs`, CW adaptation, and CATRA TCP control remain later work and must

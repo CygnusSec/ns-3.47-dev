@@ -62,11 +62,11 @@ struct CatraActiveTimeSample
 /**
  * Read-only implementation of CATRA Algorithm 1 active-time estimation.
  *
- * The probe supplies the two observations in Algorithm 1: an outgoing TCP-DATA
- * MPDU confirmed by a MAC ACK, or an incoming MAC DATA MPDU carrying a pure
- * TCP-ACK for the local station. Each contributes the paper's complete modeled
- * transaction time: expected backoff, RTS, CTS, three SIFS, the TCP-bearing
- * frame, a MAC ACK, and DIFS. The estimator only reads the supplied CW.
+ * The probe supplies local-destination TCP-DATA and reverse-flow pure TCP-ACK
+ * packets received in MAC DATA MPDUs. A successfully received unicast TCP-DATA
+ * implies the receiver's MAC ACK response in Algorithm 1. Each packet contributes
+ * the paper's complete modeled transaction time: expected backoff, RTS, CTS,
+ * three SIFS, the TCP-bearing frame, a MAC ACK, and DIFS. CW is read only.
  */
 class CatraActiveTimeEstimator
 {
