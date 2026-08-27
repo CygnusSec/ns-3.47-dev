@@ -5,6 +5,7 @@
 !nested-subdir/
 !subdir/
 !scratch-simulator.cc
+!wifi-contention-window.cc
 !catra/
 !catra/**
 !CMakeLists.txt
