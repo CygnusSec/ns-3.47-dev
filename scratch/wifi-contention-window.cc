@@ -43,21 +43,23 @@ PrintRow(const std::string& event, const std::string& details)
               << std::left << std::setw(14) << event << details << std::endl;
 }
 
-// Txop emits BackoffTrace whenever it draws a new random backoff counter.  This callback does not
-// implement backoff; it only explains the value already selected by ns-3's Wifi MAC.
+// Txop emits BackoffTrace after its RNG has selected the NUMBER of backoff slots.  The duration of
+// one slot (g_slotTime) is a fixed PHY parameter; it is not random.  This callback does not perform
+// the random draw itself, it only explains the result already selected by ns-3's Wifi MAC.
 void
-StaBackoffTrace(uint32_t slots, uint8_t /* linkId */)
+StaBackoffTrace(uint32_t selectedSlots, uint8_t /* linkId */)
 {
     if (!g_demoStarted)
     {
         return;
     }
-    const Time backoffTime = slots * g_slotTime;
-    PrintRow("BACKOFF draw",
-             "UniformInteger[0," + std::to_string(g_lastCw) + "] -> " +
-                 std::to_string(slots) + " slots");
-    PrintRow("BACKOFF wait",
-             std::to_string(slots) + " x " + std::to_string(g_slotTime.GetMicroSeconds()) +
+    const Time backoffTime = selectedSlots * g_slotTime;
+    PrintRow("BACKOFF RNG",
+             "random slot count N=UniformInteger[0," + std::to_string(g_lastCw) + "] -> N=" +
+                 std::to_string(selectedSlots));
+    PrintRow("BACKOFF time",
+             "N * fixed SlotTime = " + std::to_string(selectedSlots) + " x " +
+                 std::to_string(g_slotTime.GetMicroSeconds()) +
                  " us = " + std::to_string(backoffTime.GetMicroSeconds()) +
                  " us (counter decrements only while channel is idle)");
 }
@@ -279,7 +281,8 @@ main(int argc, char* argv[])
               << " us, SIFS=" << g_sifs.GetMicroSeconds()
               << " us, forced DATA failures=" << g_forcedFailures << "\n"
               << "BEB rule after failure k: CW=min(CWmax, 2^k*(CWmin+1)-1)\n"
-              << "Backoff rule: uniformly draw N in [0,CW], then wait N idle slots\n\n"
+              << "Backoff rule: random N=UniformInteger[0,CW]; fixed SlotTime="
+              << g_slotTime.GetMicroSeconds() << " us; delay=N*SlotTime\n\n"
               << "time(s)   processing     details\n"
               << "-------------------------------------------------------------------------------"
               << std::endl;
