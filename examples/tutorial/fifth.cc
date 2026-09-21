@@ -20,12 +20,19 @@
 
 // Import standard file-stream types used by this tutorial family for trace output.
 #include <fstream>
+#include <iomanip>
+#include <limits>
 
 // Make ns-3 classes directly visible in this small tutorial program.
 using namespace ns3;
 
 // Register this source file as an ns-3 logging component.
 NS_LOG_COMPONENT_DEFINE("FifthScriptExample");
+
+// Keep the latest threshold next to the cwnd trace so each line can name the active TCP phase.
+// TcpSocketState owns the real values; these variables are only a readable observer-side copy.
+static uint32_t g_ssThresh = std::numeric_limits<uint32_t>::max();
+static uint32_t g_segmentSize = 0;
 
 // ===========================================================================
 //
@@ -71,9 +78,49 @@ NS_LOG_COMPONENT_DEFINE("FifthScriptExample");
 static void
 CwndChange(uint32_t oldCwnd, uint32_t newCwnd)
 {
-    // Use simulated time, not wall-clock time, so this line aligns with packet and event traces.
-    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] cwnd " << oldCwnd << " -> "
-                          << newCwnd << " bytes");
+    const int64_t delta = static_cast<int64_t>(newCwnd) - static_cast<int64_t>(oldCwnd);
+    const double oldSegments = g_segmentSize == 0 ? 0.0 : 1.0 * oldCwnd / g_segmentSize;
+    const double newSegments = g_segmentSize == 0 ? 0.0 : 1.0 * newCwnd / g_segmentSize;
+
+    // A decrease is the MD part of AIMD. NewReno computes ssthresh from bytes in flight, so the
+    // observed cwnd ratio need not be exactly beta=0.5 (recovery can also temporarily inflate it).
+    if (newCwnd < oldCwnd)
+    {
+        const double ratio = oldCwnd == 0 ? 0.0 : 1.0 * newCwnd / oldCwnd;
+        NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
+                              << "s] phase=LOSS_RECOVERY AIMD=MULTIPLICATIVE_DECREASE"
+                              << " cwnd=" << oldCwnd << " -> " << newCwnd << " bytes ("
+                              << std::fixed << std::setprecision(2) << oldSegments << " -> "
+                              << newSegments << " MSS, ratio=" << ratio << ")"
+                              << " ssthresh=" << g_ssThresh << " bytes");
+        return;
+    }
+
+    // Below ssthresh, each ACK adds up to one MSS. Across one RTT this approximately doubles cwnd.
+    if (oldCwnd < g_ssThresh)
+    {
+        NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
+                              << "s] phase=SLOW_START action=EXPONENTIAL_INCREASE"
+                              << " cwnd=" << oldCwnd << " -> " << newCwnd << " bytes ("
+                              << std::fixed << std::setprecision(2) << oldSegments << " -> "
+                              << newSegments << " MSS, delta=+" << delta << " bytes)"
+                              << " ssthresh=" << g_ssThresh);
+        if (newCwnd >= g_ssThresh)
+        {
+            NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
+                                  << "s] PHASE_TRANSITION SLOW_START -> CONGESTION_AVOIDANCE"
+                                  << " because cwnd >= ssthresh");
+        }
+        return;
+    }
+
+    // At or above ssthresh, NewReno performs the AI part of AIMD: roughly one MSS per RTT.
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
+                          << "s] phase=CONGESTION_AVOIDANCE AIMD=ADDITIVE_INCREASE"
+                          << " cwnd=" << oldCwnd << " -> " << newCwnd << " bytes (" << std::fixed
+                          << std::setprecision(2) << oldSegments << " -> " << newSegments
+                          << " MSS, delta=+" << delta << " bytes)"
+                          << " ssthresh=" << g_ssThresh << " bytes");
 }
 
 /**
@@ -85,8 +132,10 @@ CwndChange(uint32_t oldCwnd, uint32_t newCwnd)
 static void
 SsThreshChange(uint32_t oldValue, uint32_t newValue)
 {
-    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds() << "s] ssthresh " << oldValue << " -> "
-                          << newValue << " bytes");
+    g_ssThresh = newValue;
+    NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
+                          << "s] LOSS_RESPONSE update ssthresh=" << oldValue << " -> " << newValue
+                          << " bytes (NewReno: max(2*MSS, beta*bytesInFlight), beta=0.5)");
 }
 
 /**
@@ -294,15 +343,18 @@ main(int argc, char* argv[])
     // Create the sender socket now, rather than hiding it inside an application, so traces can be
     // connected before the socket starts changing state. The earlier Config defaults apply here.
     Ptr<Socket> ns3TcpSocket = Socket::CreateSocket(nodes.Get(0), TcpSocketFactory::GetTypeId());
+    // Read the configured MSS once so cwnd can be printed in both bytes and segments.
+    UintegerValue segmentSize;
+    ns3TcpSocket->GetAttribute("SegmentSize", segmentSize);
+    g_segmentSize = segmentSize.Get();
     // Invoke CwndChange whenever TCP changes its congestion window.
     // Convert CwndChange into an ns-3 callback and subscribe it to every cwnd modification.
     ns3TcpSocket->TraceConnectWithoutContext("CongestionWindow", MakeCallback(&CwndChange));
+    // Always track ssthresh: it is required to distinguish Slow Start from Congestion Avoidance.
+    ns3TcpSocket->TraceConnectWithoutContext("SlowStartThreshold", MakeCallback(&SsThreshChange));
     // Extra traces are optional because per-ACK variables can generate many thousands of lines.
     if (detailedLog)
     {
-        // Observe the boundary between NewReno slow start and congestion avoidance.
-        ns3TcpSocket->TraceConnectWithoutContext("SlowStartThreshold",
-                                                 MakeCallback(&SsThreshChange));
         // Observe duplicate-ACK, fast-recovery, and timeout-recovery state transitions.
         ns3TcpSocket->TraceConnectWithoutContext("CongState", MakeCallback(&CongStateChange));
         // Observe the independent TCP connection state machine used by the handshake and close.
@@ -341,7 +393,11 @@ main(int argc, char* argv[])
     std::cout << "\nTCP flow: n0/" << interfaces.GetAddress(0) << " -> n1/"
               << interfaces.GetAddress(1) << ":" << sinkPort
               << "\nTraffic: 1000 packets x 1040 bytes at 1 Mbps"
-              << "\nError rate: 0.00001; congestion algorithm: TcpNewReno\n";
+              << "\nError rate: 0.00001; congestion algorithm: TcpNewReno"
+              << "\nMSS: " << g_segmentSize
+              << " bytes; cwnd phases: Slow Start -> Congestion Avoidance -> Loss Recovery"
+              << "\nAIMD reminder: Additive Increase applies in Congestion Avoidance;"
+              << " Multiplicative Decrease applies after congestion/loss.\n";
     if (tracePackets)
     {
         // Add verbose IPv4/TCP send, forward, local-delivery, and drop diagnostics.

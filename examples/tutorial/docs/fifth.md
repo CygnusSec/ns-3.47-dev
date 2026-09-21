@@ -40,8 +40,26 @@ Recovery algorithm: TcpClassicRecovery
 
 ## Trace callbacks
 
-`CwndChange` prints simulated time and the new congestion window. `RxDrop`
+`CwndChange` prints the simulated time, active phase, AIMD action, congestion
+window in bytes and MSS units, delta or reduction ratio, and the current
+`ssthresh`. The labels distinguish:
+
+- `SLOW_START / EXPONENTIAL_INCREASE`: approximately doubles `cwnd` per RTT.
+- `CONGESTION_AVOIDANCE / ADDITIVE_INCREASE`: approximately adds one MSS per RTT.
+- `LOSS_RECOVERY / MULTIPLICATIVE_DECREASE`: reduces the sending window after loss.
+
+`SsThreshChange` prints NewReno's loss response and threshold rule. `RxDrop`
 prints the time at which the receiver device rejects a frame.
+
+Run the focused congestion-control trace with:
+
+```bash
+docker compose exec -T ns3 ./ns3 run \
+  "fifth --printAttributes=false --detailedLog=false"
+```
+
+Set `--detailedLog=true` only when the additional RTT, RTO, bytes-in-flight,
+connection-state, and retransmission traces are needed.
 
 The common debug helper additionally prints topology and can trace every IPv4
 TCP send, forward, and delivery event:
