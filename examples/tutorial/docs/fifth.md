@@ -61,6 +61,30 @@ docker compose exec -T ns3 ./ns3 run \
 Set `--detailedLog=true` only when the additional RTT, RTO, bytes-in-flight,
 connection-state, and retransmission traces are needed.
 
+Every run also creates `fifth-cwnd.csv`. Each row represents one congestion
+window change and contains:
+
+```text
+time_s,old_cwnd_bytes,new_cwnd_bytes,old_cwnd_mss,new_cwnd_mss,ssthresh_bytes,ssthresh_mss,phase,action
+```
+
+For plotting, use `time_s` as the x-axis and `new_cwnd_mss` (or
+`new_cwnd_bytes`) as the y-axis. Use `phase` to color Slow Start, Congestion
+Avoidance, and Loss Recovery. The output path can be changed with, for example,
+`--cwndCsvFile=results/newreno-cwnd.csv`.
+
+Install `plotext` once, then render the CSV directly in the terminal:
+
+```bash
+python3 -m pip install 'plotext>=6.1'
+python3 examples/tutorial/plot-cwnd.py fifth-cwnd.csv
+```
+
+The white line shows the complete `cwnd` evolution. Green points identify Slow
+Start, cyan points identify Additive Increase during Congestion Avoidance, and
+red points identify Multiplicative Decrease during Loss Recovery. The terminal
+chart size can be changed with `--width` and `--height`.
+
 The common debug helper additionally prints topology and can trace every IPv4
 TCP send, forward, and delivery event:
 

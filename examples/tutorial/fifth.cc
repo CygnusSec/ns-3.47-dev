@@ -33,6 +33,24 @@ NS_LOG_COMPONENT_DEFINE("FifthScriptExample");
 // TcpSocketState owns the real values; these variables are only a readable observer-side copy.
 static uint32_t g_ssThresh = std::numeric_limits<uint32_t>::max();
 static uint32_t g_segmentSize = 0;
+static std::ofstream g_cwndCsv;
+
+/** Record one congestion-window change for both CSV and terminal plotting. */
+static void
+RecordCwndChange(uint32_t oldCwnd,
+                 uint32_t newCwnd,
+                 const std::string& phase,
+                 const std::string& action)
+{
+    const double oldSegments = g_segmentSize == 0 ? 0.0 : 1.0 * oldCwnd / g_segmentSize;
+    const double newSegments = g_segmentSize == 0 ? 0.0 : 1.0 * newCwnd / g_segmentSize;
+    const double ssThreshSegments =
+        g_segmentSize == 0 ? 0.0 : 1.0 * g_ssThresh / g_segmentSize;
+    g_cwndCsv << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds() << ','
+              << oldCwnd << ',' << newCwnd << ',' << std::setprecision(3) << oldSegments << ','
+              << newSegments << ',' << g_ssThresh << ',' << ssThreshSegments << ',' << phase << ','
+              << action << '\n';
+}
 
 // ===========================================================================
 //
@@ -86,6 +104,10 @@ CwndChange(uint32_t oldCwnd, uint32_t newCwnd)
     // observed cwnd ratio need not be exactly beta=0.5 (recovery can also temporarily inflate it).
     if (newCwnd < oldCwnd)
     {
+        RecordCwndChange(oldCwnd,
+                         newCwnd,
+                         "LOSS_RECOVERY",
+                         "MULTIPLICATIVE_DECREASE");
         const double ratio = oldCwnd == 0 ? 0.0 : 1.0 * newCwnd / oldCwnd;
         NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
                               << "s] phase=LOSS_RECOVERY AIMD=MULTIPLICATIVE_DECREASE"
@@ -99,6 +121,7 @@ CwndChange(uint32_t oldCwnd, uint32_t newCwnd)
     // Below ssthresh, each ACK adds up to one MSS. Across one RTT this approximately doubles cwnd.
     if (oldCwnd < g_ssThresh)
     {
+        RecordCwndChange(oldCwnd, newCwnd, "SLOW_START", "EXPONENTIAL_INCREASE");
         NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
                               << "s] phase=SLOW_START action=EXPONENTIAL_INCREASE"
                               << " cwnd=" << oldCwnd << " -> " << newCwnd << " bytes ("
@@ -115,6 +138,10 @@ CwndChange(uint32_t oldCwnd, uint32_t newCwnd)
     }
 
     // At or above ssthresh, NewReno performs the AI part of AIMD: roughly one MSS per RTT.
+    RecordCwndChange(oldCwnd,
+                     newCwnd,
+                     "CONGESTION_AVOIDANCE",
+                     "ADDITIVE_INCREASE");
     NS_LOG_UNCOND("[TCP " << Simulator::Now().GetSeconds()
                           << "s] phase=CONGESTION_AVOIDANCE AIMD=ADDITIVE_INCREASE"
                           << " cwnd=" << oldCwnd << " -> " << newCwnd << " bytes (" << std::fixed
@@ -244,6 +271,8 @@ main(int argc, char* argv[])
     bool tracePackets = false;
     // Control the additional TCP state/variable traces and internal NewReno/socket log messages.
     bool detailedLog = false;
+    // CSV output can be loaded directly by Python, R, a spreadsheet, or gnuplot.
+    std::string cwndCsvFile = "fifth-cwnd.csv";
 
     // Parse standard ns-3 command-line arguments.
     // Use the source filename in --help output so users can identify the owning example.
@@ -254,6 +283,7 @@ main(int argc, char* argv[])
     cmd.AddValue("detailedLog",
                  "Print TCP state, NewReno variables, RTT, RTO and retransmissions",
                  detailedLog);
+    cmd.AddValue("cwndCsvFile", "Congestion-window CSV output filename", cwndCsvFile);
     // Parse arguments before creating model objects so every option affects initial configuration.
     cmd.Parse(argc, argv);
 
@@ -347,6 +377,11 @@ main(int argc, char* argv[])
     UintegerValue segmentSize;
     ns3TcpSocket->GetAttribute("SegmentSize", segmentSize);
     g_segmentSize = segmentSize.Get();
+    // Open after command-line parsing and write a stable schema before any TCP event can occur.
+    g_cwndCsv.open(cwndCsvFile, std::ios::out | std::ios::trunc);
+    NS_ABORT_MSG_IF(!g_cwndCsv.is_open(), "Cannot open cwnd CSV file: " << cwndCsvFile);
+    g_cwndCsv << "time_s,old_cwnd_bytes,new_cwnd_bytes,old_cwnd_mss,new_cwnd_mss,"
+                 "ssthresh_bytes,ssthresh_mss,phase,action\n";
     // Invoke CwndChange whenever TCP changes its congestion window.
     // Convert CwndChange into an ns-3 callback and subscribe it to every cwnd modification.
     ns3TcpSocket->TraceConnectWithoutContext("CongestionWindow", MakeCallback(&CwndChange));
@@ -397,7 +432,8 @@ main(int argc, char* argv[])
               << "\nMSS: " << g_segmentSize
               << " bytes; cwnd phases: Slow Start -> Congestion Avoidance -> Loss Recovery"
               << "\nAIMD reminder: Additive Increase applies in Congestion Avoidance;"
-              << " Multiplicative Decrease applies after congestion/loss.\n";
+              << " Multiplicative Decrease applies after congestion/loss."
+              << "\nCSV trace: " << cwndCsvFile << '\n';
     if (tracePackets)
     {
         // Add verbose IPv4/TCP send, forward, local-delivery, and drop diagnostics.
@@ -414,6 +450,7 @@ main(int argc, char* argv[])
     Ptr<PacketSink> sink = DynamicCast<PacketSink>(sinkApps.Get(0));
     std::cout << "\nSimulation summary: finished at " << Simulator::Now().GetSeconds()
               << " s, TCP sink received " << sink->GetTotalRx() << " bytes\n";
+    g_cwndCsv.close();
     // Release simulator-global events and singleton state before the process exits.
     Simulator::Destroy();
 
