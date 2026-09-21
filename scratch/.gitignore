@@ -6,6 +6,7 @@
 !subdir/
 !scratch-simulator.cc
 !wifi-contention-window.cc
+!tcp-congestion-standard.cc
 !catra/
 !catra/**
 !CMakeLists.txt

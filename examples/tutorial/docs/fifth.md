@@ -77,13 +77,16 @@ Install `plotext` once, then render the CSV directly in the terminal:
 
 ```bash
 python3 -m pip install 'plotext>=6.1'
-python3 examples/tutorial/plot-cwnd.py fifth-cwnd.csv
+python3 utils/plot-tcp-congestion.py fifth-cwnd.csv
 ```
 
-The white line shows the complete `cwnd` evolution. Green points identify Slow
-Start, cyan points identify Additive Increase during Congestion Avoidance, and
-red points identify Multiplicative Decrease during Loss Recovery. The terminal
-chart size can be changed with `--width` and `--height`.
+The high-contrast dark chart uses a white line for the complete `cwnd`
+evolution, green `S` markers for Slow Start, cyan `A` markers for Additive
+Increase, and red `M` markers for Multiplicative Decrease. The yellow
+`ssthresh` line begins after the first loss response; the initial unlimited
+`UINT32_MAX` threshold is intentionally hidden so it does not flatten the
+useful y-axis range. The terminal chart size can be changed with `--width` and
+`--height`.
 
 The common debug helper additionally prints topology and can trace every IPv4
 TCP send, forward, and delivery event:
