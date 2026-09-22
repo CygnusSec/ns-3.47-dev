@@ -46,12 +46,11 @@ và Jain fairness index.
   active-time estimator.
 - `scratch/catra/CMakeLists.txt` đã khai báo ba executable hiện tại.
 
-### 2.2. Chưa có trong Scenario 1 executable
+### 2.2. Trạng thái hiện tại của Scenario 1 executable
 
-- Static host routes cho forward và reverse direction.
-- UDP route-validation traffic.
-- Hai saturated TCP flows và hai sinks.
-- Baseline throughput/FlowMonitor CSV.
+- Đã có static host routes cho forward/reverse direction và UDP route probe.
+- Đã có hai saturated TCP flows, hai sinks và baseline CSV cho mode `baseline`.
+- Route probe và baseline `n=3` đã build và runtime validation PASS.
 - `nSEND`, `nTX`, `nCS`, `ntotal`, `FBRS`.
 - Tích hợp Algorithm 1 estimator vào từng station của Scenario 1.
 - CATRA MAC CW controller.
@@ -60,8 +59,9 @@ và Jain fairness index.
 
 ### 2.3. Ranh giới quan trọng
 
-- Paper dùng TCP Tahoe; checkout hiện tại dùng `TcpNewReno` làm baseline port.
-  Không được gọi kết quả này là strict Tahoe reproduction.
+- Paper dùng TCP Tahoe. Checkout hiện tại cung cấp `CatraTcpTahoe`: Reno
+  slow-start/congestion-avoidance kết hợp Tahoe one-MSS loss recovery và tắt
+  SACK. Đây là ns-3 port, không phải implementation NS-2 gốc của tác giả.
 - Algorithm 1 hiện chỉ đo active time và `RBRs`; không được suy ra rằng flow
   counting, CW control hoặc CATRA TCP đã được triển khai.
 - Giá trị CW của NS-2 và ns-3 có thể khác quy ước. Chưa được gán `32/1024` trực
@@ -76,7 +76,7 @@ Scenario executable phải hỗ trợ dần các mode sau:
 ```text
 topology       # topology-only, tương đương trạng thái hiện tại
 route-probe    # static routes + UDP validation
-baseline       # Original TCP/NewReno, CATRA disabled
+baseline       # Original TCP/Tahoe-compatible port, CATRA disabled
 measure-only   # baseline + CATRA read-only measurements
 catra-mac      # measurement + station CW control
 catra-full     # CATRA MAC + CATRA TCP
@@ -192,7 +192,7 @@ scratch/catra/NS3_SOURCE_MAPPING.md
 1. Map CW update/reset/backoff generation trong `src/wifi/model`.
 2. Xác nhận CW values của ns-3 là inclusive slot range kiểu `2^k-1` hay cách
    biểu diễn khác; ghi mapping paper `32/1024` thành quyết định riêng.
-3. Map NewReno `IncreaseWindow`, slow start, congestion avoidance, loss/RTO.
+3. Map `CatraTcpTahoe` growth, one-MSS loss recovery and RTO paths.
 4. Xác định hook tối thiểu để CATRA TCP thay đổi `cwnd` và delay mà không phá
    recovery state machine.
 5. Ghi rõ API nào chỉ dùng quan sát và API nào dự kiến dùng điều khiển.
@@ -234,7 +234,7 @@ short:   S1 -> R
 - Distant destination không bị gửi trực tiếp do cùng subnet.
 - Không có route discovery/convergence dependency.
 
-## Step 3 — Original TCP/NewReno baseline
+## Step 3 — Original TCP/Tahoe baseline
 
 ### Mục tiêu
 
@@ -252,7 +252,7 @@ SendSize/segment target: 1024 bytes
 Traffic start: 1 s
 Simulation stop: 300 s
 Active measurement duration: 299 s
-TCP: TcpNewReno, explicitly labeled PORT
+TCP: CatraTcpTahoe port, SACK disabled, cwnd returns to 1 MSS on loss
 ```
 
 ### Instrumentation tối thiểu
@@ -281,7 +281,7 @@ Khóa pipeline đo baseline trước khi thêm estimator.
 
 ```text
 mode,n,seed,run,tcp,active_s,
-flow1_mbps,flow2_mbps,total_e2e_mbps,hop_weighted_mbps,jain,
+flow1_mbps,flow2_mbps,total_e2e_mbps,paper_total_approx_mbps,jain,
 flow1_rx_bytes,flow2_rx_bytes
 ```
 
@@ -290,12 +290,12 @@ flow1_rx_bytes,flow2_rx_bytes
 ```text
 flow_i_mbps = rx_bytes_i * 8 / active_s / 1e6
 total_e2e_mbps = flow1_mbps + flow2_mbps
-hop_weighted_mbps = flow1_mbps + (n - 1) * flow2_mbps
+paper_total_approx_mbps = flow1_mbps + (n - 1) * flow2_mbps
 jain = (flow1 + flow2)^2 / (2 * (flow1^2 + flow2^2))
 ```
 
-Không gọi `hop_weighted_mbps` là channel throughput nếu chưa đo trực tiếp
-channel payload/time.
+Không gọi `paper_total_approx_mbps` là channel throughput đo trực tiếp. Đây là
+xấp xỉ của phương trình (17) trong paper.
 
 ### Deterministic tests
 
@@ -588,7 +588,7 @@ Tạo mode `catra-full` bằng cách nối decision đã kiểm thử vào socke
 1. Xác định socket nào thuộc Flow 1/Flow 2; không dùng wildcard mơ hồ.
 2. Áp `cwnd` delta qua hook đã map, bảo toàn recovery state của TCP.
 3. Áp `deltaF` vào packet-generation scheduling, không dùng blocking sleep.
-4. Khi action `ORIGINAL_TCP`, giao hoàn toàn cho NewReno path.
+4. Khi action `ORIGINAL_TCP`, giao hoàn toàn cho Tahoe-compatible path.
 5. Trace trước/sau: ratio, action, old/new cwnd, delay và next send time.
 
 ### Flow control CSV
@@ -602,8 +602,8 @@ win_bytes,Tf_s,deltaF_s,old_cwnd_bytes,new_cwnd_bytes,action
 
 - `ratio>1.05`: cwnd giảm đúng 1 MSS và delay > 0.
 - `ratio<0.7`: cwnd tăng đúng 1 MSS và delay = 0.
-- Middle band: original NewReno behavior.
-- RTO/Fast Recovery của NewReno không bị CATRA label nhầm thành CATRA action.
+- Middle band: original Tahoe-compatible behavior.
+- Tahoe loss recovery không bị CATRA label nhầm thành CATRA action.
 
 ## Step 13 — Full comparison và regression matrix
 
@@ -667,7 +667,7 @@ scripts/catra/plot-scenario1-fig4.py
 - Total E2E và hop-weighted throughput với label không nhập nhằng.
 - Jain fairness.
 - Error bars khi có nhiều run.
-- Ghi rõ `TcpNewReno PORT`, không ghi Tahoe nếu chưa triển khai Tahoe-like.
+- Ghi rõ `CatraTcpTahoe PORT`, không nhận là implementation NS-2 gốc.
 
 ## Step 15 — Documentation và Definition of Done
 
@@ -772,7 +772,7 @@ khi forward và reverse paths đã được chứng minh cho đủ `n=3..6`.
 
 ## 9. Execution record — n=3 first
 
-- [ ] Step 0 runtime revalidation: blocked because Docker daemon is unavailable.
+- [x] Step 0 runtime environment revalidated with Docker on 2026-09-22.
 - [x] Step 1 routing/Algorithm 1 source mapping recorded.
 - [ ] Step 1 MAC/TCP control-hook mapping; intentionally deferred until their phases.
 - [x] Step 2 route-probe implementation added behind `--mode=route-probe`.
@@ -780,8 +780,9 @@ khi forward và reverse paths đã được chứng minh cho đủ `n=3..6`.
 - [x] Reverse `/32` routes toward `S2` implemented.
 - [x] Long-forward, long-reverse and short-forward UDP probes implemented.
 - [x] FlowMonitor delivery/hop-count validator implemented.
-- [ ] Build and strict runtime validation for `n=3`.
-- [ ] Original TCP baseline; intentionally gated on route-probe PASS.
+- [x] Build and strict route-probe runtime validation for `n=3` PASS.
+- [x] Original TCP/Tahoe-compatible baseline source, CSV output and terminal plot implemented.
+- [x] Full 300 s Tahoe baseline runtime validation for `n=3` PASS (seed/run 1/1).
 
 Only `n=3` is in the current acceptance scope. The implementation remains
 parameterized by `--n` so later validation can extend to `n=4..6` without

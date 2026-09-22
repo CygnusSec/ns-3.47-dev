@@ -92,7 +92,7 @@ traffic=none
 
 Phase 3 owns static host-route population and bidirectional UDP validation.
 
-### Phase 3 n=3 implementation record (pending runtime validation)
+### Phase 3 n=3 implementation record (runtime validated)
 
 `catra-scenario1` now accepts `--mode=route-probe`. The mode installs explicit
 `/32` routes toward `R` through the next station on the right and explicit
@@ -112,9 +112,8 @@ observed_hops = 1 + timesForwarded / rxPackets
 ```
 
 The topology-only behavior remains available through `--mode=topology` and
-does not install applications or populated host routes. Build/runtime evidence
-for the new `n=3` route probe is still required because the Docker daemon was
-unavailable when this phase was added. The command to close the gate is:
+does not install applications or populated host routes. The `n=3` route probe
+passed all delivery and hop-count checks on 2026-09-22. Re-run it with:
 
 ```bash
 docker compose exec -T ns3 ./ns3 build catra-scenario1 -j 2
@@ -123,8 +122,34 @@ docker compose exec -T ns3 ./ns3 run \
   --no-build
 ```
 
-Do not begin the TCP baseline until this run reports both
-`route_probe_overall=PASS` and `scenario_overall=PASS`.
+The validated run reported both `route_probe_overall=PASS` and
+`scenario_overall=PASS`.
+
+### Phase 4 n=3 baseline implementation record (runtime validated)
+
+`--mode=baseline` installs both saturated flows, two receiver sinks, the same
+deterministic routes used by the probe, and the local `CatraTcpTahoe` port. It
+uses Reno slow start/congestion avoidance, disables SACK, and replaces fast
+recovery with Tahoe's loss response (`cwnd = 1 MSS`, then slow start). The
+default run lasts 300 s; both sources start at 1 s.
+
+The executable prints per-flow goodput and appends one row to
+`results/catra/scenario1/tahoe-baseline.csv`. `paper_total_approx_mbps` is Equation
+(17)'s approximation, not a direct measurement of channel payload throughput.
+
+Run the complete current `n=3` gate and terminal chart with:
+
+```bash
+scripts/catra/run-scenario1-n3.sh
+```
+
+The runner always executes the bidirectional UDP route probe before the TCP
+baseline. A full 300 s Tahoe run on 2026-09-22 reported
+`scenario_overall=PASS` with Flow 1 = 1.554453 Mbps, Flow 2 = 0.881722 Mbps,
+and the paper Equation (17) approximation = 3.317897 Mbps for seed/run 1/1.
+FlowMonitor independently confirmed the one-hop and two-hop paths. A smoke run
+with `NS_LOG=CatraTcpTahoe=level_info` also observed loss responses resetting
+the congestion window to one 1024-byte MSS.
 
 ### Algorithm 1 active-time measurement record
 
@@ -279,8 +304,8 @@ before TCP is installed.
 
 | Item | Value | Status | Notes |
 |---|---:|---|---|
-| Paper TCP | Tahoe | `PAPER` | Not present in this ns-3.47 checkout |
-| Initial baseline TCP | `TcpNewReno` | `PORT` | Label results as NewReno, not Tahoe reproduction |
+| Paper TCP | Tahoe | `PAPER` | Required by Scenario 1 |
+| Baseline TCP | `CatraTcpTahoe` | `PORT` | Reno growth rules plus Tahoe one-MSS loss recovery; SACK disabled |
 | Application | `BulkSendApplication` | `PORT` | Saturated transfer with `MaxBytes=0` |
 | Receiver | Two `PacketSink` instances | `PORT` | Ports 5001 and 5002 identify the flows |
 | Segment/application send size | 1024 bytes | `PORT` | Treat the paper's 1 KB as payload; verify with PCAP |
@@ -290,9 +315,9 @@ before TCP is installed.
 | Initial congestion window | ns-3.47 default | `PORT` | Record the resolved value in run metadata |
 | Receive/send buffers | ns-3.47 defaults | `PORT` | Record resolved values; do not silently tune them |
 
-A later Tahoe-like implementation is a separate experiment. It is required
-before claiming a strict reproduction if the authors' original Tahoe behavior
-materially changes the baseline trend.
+The local class is an explicit ns-3.47 port because this checkout has no native
+`TcpTahoe`. It must be reported as a Tahoe-compatible port rather than the
+authors' original NS-2 implementation.
 
 ## Queue contract
 
@@ -318,19 +343,19 @@ For active duration `T`:
 flow1_mbps = flow1_received_bytes * 8 / T / 1,000,000
 flow2_mbps = flow2_received_bytes * 8 / T / 1,000,000
 total_e2e_mbps = flow1_mbps + flow2_mbps
-hop_weighted_mbps = flow1_mbps + (n - 1) * flow2_mbps
+paper_total_approx_mbps = flow1_mbps + (n - 1) * flow2_mbps
 jain = (flow1_mbps + flow2_mbps)^2
        / (2 * (flow1_mbps^2 + flow2_mbps^2))
 ```
 
-`hop_weighted_mbps` is the explicit name for the paper-style hop-weighted
-quantity. It must not be labeled simply as channel throughput.
+`paper_total_approx_mbps` is the explicit name for the paper's Equation (17)
+approximation. It must not be labeled as directly measured channel throughput.
 
 Every CSV row must contain:
 
 ```text
 mode,n,seed,run,tcp,active_s,
-flow1_mbps,flow2_mbps,total_e2e_mbps,hop_weighted_mbps,jain,
+flow1_mbps,flow2_mbps,total_e2e_mbps,paper_total_approx_mbps,jain,
 flow1_rx_bytes,flow2_rx_bytes
 ```
 
@@ -399,7 +424,7 @@ move to `contrib/catra` only after the baseline has passed its gates.
 ## Phase 0 completion record
 
 - Paper values and ns-3 port decisions are separated.
-- Unresolved Tahoe and contention-window mappings are explicit.
+- Tahoe is mapped through the local compatible port; contention-window mapping remains explicit.
 - PHY calibration inputs and observable acceptance criteria are explicit.
 - Routing, queue, measurement, reproducibility, and output contracts are fixed.
 - Phase 1 is implemented by `scratch/catra/catra-phy-range-probe.cc`.

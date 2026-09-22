@@ -4,8 +4,11 @@
 
 // CATRA Scenario 1 is introduced through independently selectable phases.
 // The topology mode preserves the calibrated Phase 2 behavior, while the
-// route-probe mode adds only deterministic routes and UDP validation traffic.
-// TCP and CATRA controllers remain deliberately out of scope here.
+// route-probe mode adds deterministic routes and UDP validation traffic.
+// baseline mode adds the paper's two saturated flows using the local Tahoe
+// implementation. CATRA controllers remain deliberately out of scope here.
+
+#include "tcp-tahoe.h"
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
@@ -19,6 +22,8 @@
 
 #include <array>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -38,7 +43,16 @@ constexpr double POSITION_TOLERANCE_M = 1e-9;
 constexpr uint16_t LONG_FORWARD_PORT = 7001;
 constexpr uint16_t LONG_REVERSE_PORT = 7002;
 constexpr uint16_t SHORT_FORWARD_PORT = 7003;
+constexpr uint16_t FLOW1_PORT = 5001;
+constexpr uint16_t FLOW2_PORT = 5002;
 constexpr uint32_t ROUTE_PROBE_PACKETS = 5;
+constexpr uint32_t TCP_PAYLOAD_BYTES = 1024;
+
+struct BaselineApplications
+{
+    Ptr<PacketSink> flow1Sink;
+    Ptr<PacketSink> flow2Sink;
+};
 
 /** Return the paper role associated with a chain index. */
 std::string
@@ -221,6 +235,101 @@ InstallRouteProbeApplications(const NodeContainer& nodes,
                   Seconds(2.4));
 }
 
+/** Install the two saturated TCP flows from Scenario 1. */
+BaselineApplications
+InstallBaselineApplications(const NodeContainer& nodes,
+                            const Ipv4InterfaceContainer& interfaces,
+                            double trafficStartS,
+                            double simulationTimeS)
+{
+    const uint32_t s1Index = nodes.GetN() - 2;
+    const uint32_t receiverIndex = nodes.GetN() - 1;
+    const Ipv4Address receiverAddress = interfaces.GetAddress(receiverIndex);
+
+    PacketSinkHelper flow1SinkHelper(
+        "ns3::TcpSocketFactory",
+        InetSocketAddress(Ipv4Address::GetAny(), FLOW1_PORT));
+    PacketSinkHelper flow2SinkHelper(
+        "ns3::TcpSocketFactory",
+        InetSocketAddress(Ipv4Address::GetAny(), FLOW2_PORT));
+    ApplicationContainer flow1SinkApps = flow1SinkHelper.Install(nodes.Get(receiverIndex));
+    ApplicationContainer flow2SinkApps = flow2SinkHelper.Install(nodes.Get(receiverIndex));
+    flow1SinkApps.Start(Seconds(0.5));
+    flow2SinkApps.Start(Seconds(0.5));
+    flow1SinkApps.Stop(Seconds(simulationTimeS));
+    flow2SinkApps.Stop(Seconds(simulationTimeS));
+
+    BulkSendHelper flow1("ns3::TcpSocketFactory", InetSocketAddress(receiverAddress, FLOW1_PORT));
+    flow1.SetAttribute("MaxBytes", UintegerValue(0));
+    flow1.SetAttribute("SendSize", UintegerValue(TCP_PAYLOAD_BYTES));
+    BulkSendHelper flow2("ns3::TcpSocketFactory", InetSocketAddress(receiverAddress, FLOW2_PORT));
+    flow2.SetAttribute("MaxBytes", UintegerValue(0));
+    flow2.SetAttribute("SendSize", UintegerValue(TCP_PAYLOAD_BYTES));
+
+    ApplicationContainer sources;
+    sources.Add(flow1.Install(nodes.Get(s1Index)));
+    sources.Add(flow2.Install(nodes.Get(0)));
+    sources.Start(Seconds(trafficStartS));
+    sources.Stop(Seconds(simulationTimeS));
+
+    return {DynamicCast<PacketSink>(flow1SinkApps.Get(0)),
+            DynamicCast<PacketSink>(flow2SinkApps.Get(0))};
+}
+
+/** Print and append the baseline metrics needed to reproduce Fig. 4. */
+bool
+WriteBaselineMetrics(const BaselineApplications& applications,
+                     uint32_t stationCount,
+                     uint32_t seed,
+                     uint64_t run,
+                     double trafficStartS,
+                     double simulationTimeS,
+                     const std::string& csvPath)
+{
+    NS_ABORT_MSG_IF(!applications.flow1Sink || !applications.flow2Sink,
+                    "Baseline PacketSink lookup failed");
+    const double activeS = simulationTimeS - trafficStartS;
+    const uint64_t flow1Bytes = applications.flow1Sink->GetTotalRx();
+    const uint64_t flow2Bytes = applications.flow2Sink->GetTotalRx();
+    const double flow1Mbps = flow1Bytes * 8.0 / activeS / 1e6;
+    const double flow2Mbps = flow2Bytes * 8.0 / activeS / 1e6;
+    const double totalE2eMbps = flow1Mbps + flow2Mbps;
+    const double paperTotalApproxMbps = flow1Mbps + (stationCount - 1) * flow2Mbps;
+    const double squaredSum = flow1Mbps * flow1Mbps + flow2Mbps * flow2Mbps;
+    const double jain = squaredSum > 0.0 ? totalE2eMbps * totalE2eMbps / (2.0 * squaredSum) : 0.0;
+
+    std::cout << std::fixed << std::setprecision(6)
+              << "[BASELINE] flow=Flow1 path=S1->R hops=1 rx_bytes=" << flow1Bytes
+              << " goodput_mbps=" << flow1Mbps << "\n"
+              << "[BASELINE] flow=Flow2 path=S2->R hops=" << stationCount - 1
+              << " rx_bytes=" << flow2Bytes << " goodput_mbps=" << flow2Mbps << "\n"
+              << "[BASELINE] total_e2e_mbps=" << totalE2eMbps
+              << " paper_total_approx_mbps=" << paperTotalApproxMbps
+              << " jain=" << jain << " active_s=" << activeS << "\n";
+
+    const std::filesystem::path outputPath(csvPath);
+    if (!outputPath.parent_path().empty())
+    {
+        std::filesystem::create_directories(outputPath.parent_path());
+    }
+    const bool writeHeader = !std::filesystem::exists(outputPath) ||
+                             std::filesystem::file_size(outputPath) == 0;
+    std::ofstream csv(csvPath, std::ios::app);
+    NS_ABORT_MSG_IF(!csv, "Cannot open baseline CSV: " << csvPath);
+    if (writeHeader)
+    {
+        csv << "mode,n,seed,run,tcp,active_s,flow1_mbps,flow2_mbps,total_e2e_mbps,"
+               "paper_total_approx_mbps,jain,flow1_rx_bytes,flow2_rx_bytes\n";
+    }
+    csv << std::fixed << std::setprecision(6) << "baseline," << stationCount << ',' << seed << ','
+        << run << ",TcpTahoe," << activeS << ',' << flow1Mbps << ',' << flow2Mbps << ','
+        << totalE2eMbps << ',' << paperTotalApproxMbps << ',' << jain << ',' << flow1Bytes << ','
+        << flow2Bytes << '\n';
+    std::cout << "baseline_csv=" << csvPath << "\n";
+    std::cout << std::defaultfloat << std::setprecision(6);
+    return flow1Bytes > 0 && flow2Bytes > 0;
+}
+
 /** Validate route-probe delivery and IP hop counts from FlowMonitor. */
 bool
 ValidateRouteProbe(Ptr<FlowMonitor> monitor,
@@ -283,6 +392,67 @@ ValidateRouteProbe(Ptr<FlowMonitor> monitor,
         }
     }
     std::cout << "route_probe_overall=" << (passed ? "PASS" : "FAIL") << "\n";
+    return passed;
+}
+
+/** Cross-check baseline delivery and IP hop counts independently of PacketSink. */
+bool
+ValidateBaselineFlows(Ptr<FlowMonitor> monitor,
+                      Ptr<Ipv4FlowClassifier> classifier,
+                      uint32_t stationCount)
+{
+    struct ExpectedFlow
+    {
+        std::string name;
+        uint16_t destinationPort;
+        uint32_t expectedHops;
+        bool found{false};
+    };
+    std::array<ExpectedFlow, 2> expected{{{"Flow1", FLOW1_PORT, 1},
+                                         {"Flow2", FLOW2_PORT, stationCount - 1}}};
+    bool passed = true;
+    monitor->CheckForLostPackets();
+    for (const auto& [flowId, stats] : monitor->GetFlowStats())
+    {
+        const Ipv4FlowClassifier::FiveTuple tuple = classifier->FindFlow(flowId);
+        if (tuple.protocol != 6)
+        {
+            continue;
+        }
+        for (auto& flow : expected)
+        {
+            if (tuple.destinationPort != flow.destinationPort)
+            {
+                continue;
+            }
+            flow.found = true;
+            const double observedHops = stats.rxPackets == 0
+                                            ? 0.0
+                                            : 1.0 + 1.0 * stats.timesForwarded / stats.rxPackets;
+            const bool delivered = stats.rxPackets > 0 && stats.rxBytes > 0;
+            const bool hopsPassed =
+                std::abs(observedHops - flow.expectedHops) <= POSITION_TOLERANCE_M;
+            std::cout << "[BASELINE-FLOWMONITOR] flow=" << flow.name
+                      << " src=" << tuple.sourceAddress << " dst=" << tuple.destinationAddress
+                      << " tx_packets=" << stats.txPackets << " rx_packets=" << stats.rxPackets
+                      << " lost_packets=" << stats.lostPackets
+                      << " observed_hops=" << observedHops
+                      << " expected_hops=" << flow.expectedHops
+                      << " delivery=" << (delivered ? "PASS" : "FAIL")
+                      << " path=" << (hopsPassed ? "PASS" : "FAIL") << "\n";
+            passed = passed && delivered && hopsPassed;
+        }
+    }
+    for (const auto& flow : expected)
+    {
+        if (!flow.found)
+        {
+            std::cout << "[BASELINE-FLOWMONITOR] flow=" << flow.name
+                      << " result=FAIL reason=not-found\n";
+            passed = false;
+        }
+    }
+    std::cout << "baseline_flowmonitor_overall=" << (passed ? "PASS" : "FAIL") << "\n";
     return passed;
 }
 
@@ -363,12 +533,15 @@ main(int argc, char* argv[])
     bool verboseDetails{true};
     bool enablePcap{false};
     bool strict{true};
+    double simulationTimeS{300.0};
+    double trafficStartS{1.0};
+    std::string csvPath{"results/catra/scenario1/tahoe-baseline.csv"};
 
     // PHY defaults mirror the values accepted by catra-phy-range-probe.  They
     // remain command-line options so a future recalibration can be evaluated
     // without editing the scenario source.
     CommandLine cmd(__FILE__);
-    cmd.AddValue("mode", "Scenario phase: topology or route-probe", mode);
+    cmd.AddValue("mode", "Scenario phase: topology, route-probe, or baseline", mode);
     cmd.AddValue("n", "Number of stations in the Scenario 1 chain (3 through 6)", stationCount);
     cmd.AddValue("spacing", "Distance between adjacent stations in meters", spacingM);
     cmd.AddValue("txPower", "Fixed transmit power in dBm", txPowerDbm);
@@ -384,22 +557,31 @@ main(int argc, char* argv[])
     cmd.AddValue("verboseDetails", "Print tagged per-node setup details", verboseDetails);
     cmd.AddValue("enablePcap", "Enable per-device PCAP files", enablePcap);
     cmd.AddValue("strict", "Return failure when a selected-phase invariant is violated", strict);
+    cmd.AddValue("simTime", "Simulation stop time in seconds", simulationTimeS);
+    cmd.AddValue("trafficStart", "TCP source start time in seconds", trafficStartS);
+    cmd.AddValue("csv", "Baseline result CSV path", csvPath);
     cmd.Parse(argc, argv);
 
     NS_ABORT_MSG_IF(stationCount < MIN_STATIONS || stationCount > MAX_STATIONS,
                     "Scenario 1 requires n in the range [3, 6]");
-    NS_ABORT_MSG_IF(mode != "topology" && mode != "route-probe",
-                    "mode must be topology or route-probe");
+    NS_ABORT_MSG_IF(mode != "topology" && mode != "route-probe" && mode != "baseline",
+                    "mode must be topology, route-probe, or baseline");
     NS_ABORT_MSG_IF(spacingM <= 0.0, "spacing must be positive");
     NS_ABORT_MSG_IF(systemLoss < 1.0, "systemLoss must be at least 1.0");
+    NS_ABORT_MSG_IF(simulationTimeS <= trafficStartS,
+                    "simTime must be greater than trafficStart");
 
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(run);
 
     const bool routeProbeEnabled = mode == "route-probe";
+    const bool baselineEnabled = mode == "baseline";
+    const bool routesEnabled = routeProbeEnabled || baselineEnabled;
     std::cout << "\n=== 1. Scenario 1 configuration ===\n"
               << "mode=" << mode
-              << " phase=" << (routeProbeEnabled ? "static-route-validation" : "topology-only")
+              << " phase=" << (routeProbeEnabled   ? "static-route-validation"
+                                 : baselineEnabled ? "original-tcp-baseline"
+                                                   : "topology-only")
               << " catra=disabled\n"
               << "stations=" << stationCount << " spacing_m=" << spacingM
               << " s2_index=0 s1_index=" << stationCount - 2
@@ -407,8 +589,9 @@ main(int argc, char* argv[])
               << "expected_short_flow_hops=1 expected_long_flow_hops=" << stationCount - 1
               << " seed=" << seed << " run=" << run
               << " verbose_details=" << std::boolalpha << verboseDetails << "\n"
-              << "[PHASE-BOUNDARY] routes_populated=" << routeProbeEnabled
-              << " udp=" << routeProbeEnabled << " tcp=false catra=false\n";
+              << "[PHASE-BOUNDARY] routes_populated=" << routesEnabled
+              << " udp=" << routeProbeEnabled << " tcp=" << baselineEnabled
+              << " catra=false\n";
 
     // Set non-unicast mode even though Phase 2 sends no frames.  This keeps the
     // installed Wi-Fi configuration identical to the validated Phase 1 PHY and
@@ -417,6 +600,11 @@ main(int argc, char* argv[])
                        StringValue("DsssRate11Mbps"));
     Config::SetDefault("ns3::WifiRemoteStationManager::RtsCtsThreshold", UintegerValue(0));
     Config::SetDefault("ns3::WifiMacQueue::MaxSize", QueueSizeValue(QueueSize("100p")));
+    Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(CatraTcpTahoe::GetTypeId()));
+    Config::SetDefault("ns3::TcpL4Protocol::RecoveryType",
+                       TypeIdValue(CatraTcpTahoeRecovery::GetTypeId()));
+    Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(TCP_PAYLOAD_BYTES));
+    Config::SetDefault("ns3::TcpSocketBase::Sack", BooleanValue(false));
 
     std::cout << "\n=== 2. Create the linear station chain ===\n";
     NodeContainer nodes;
@@ -514,14 +702,17 @@ main(int argc, char* argv[])
     Ipv4AddressHelper ipv4;
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
     Ipv4InterfaceContainer interfaces = ipv4.Assign(devices);
-    if (routeProbeEnabled)
+    if (routesEnabled)
     {
         InstallScenarioRoutes(nodes, devices, interfaces, staticRouting, verboseDetails);
     }
     std::cout << "ipv4_network=10.1.1.0/24 routing="
-              << (routeProbeEnabled ? "static-host-routes" : "static-unpopulated")
-              << " applications=" << (routeProbeEnabled ? 6 : 0)
-              << " traffic=" << (routeProbeEnabled ? "udp-route-probes" : "none") << "\n";
+              << (routesEnabled ? "static-host-routes" : "static-unpopulated")
+              << " applications=" << (routeProbeEnabled ? 6 : baselineEnabled ? 4 : 0)
+              << " traffic="
+              << (routeProbeEnabled ? "udp-route-probes"
+                                    : baselineEnabled ? "two-saturated-tcp-flows" : "none")
+              << "\n";
     if (verboseDetails)
     {
         for (uint32_t index = 0; index < interfaces.GetN(); ++index)
@@ -529,13 +720,14 @@ main(int argc, char* argv[])
             std::cout << "[IPV4-ASSIGN] node=n" << nodes.Get(index)->GetId()
                       << " address=" << interfaces.GetAddress(index)
                       << " mask=255.255.255.0 host_routes="
-                      << (routeProbeEnabled ? "phase-specific" : "0") << "\n";
+                      << (routesEnabled ? "phase-specific" : "0") << "\n";
         }
     }
 
     FlowMonitorHelper flowMonitorHelper;
     Ptr<FlowMonitor> flowMonitor;
     Ptr<Ipv4FlowClassifier> flowClassifier;
+    BaselineApplications baselineApplications;
     if (routeProbeEnabled)
     {
         std::cout << "\n=== 5. Install bidirectional UDP route probes ===\n";
@@ -544,6 +736,19 @@ main(int argc, char* argv[])
         flowClassifier = DynamicCast<Ipv4FlowClassifier>(flowMonitorHelper.GetClassifier());
         NS_ABORT_MSG_IF(!flowClassifier, "Expected an IPv4 FlowMonitor classifier");
         Simulator::Stop(Seconds(4.0));
+    }
+    else if (baselineEnabled)
+    {
+        std::cout << "\n=== 5. Install Scenario 1 TCP baseline ===\n"
+                  << "tcp=TcpTahoe implementation=CatraTcpTahoe+TahoeRecovery sack=false"
+                  << " classification=PORT payload_bytes=" << TCP_PAYLOAD_BYTES
+                  << " traffic_start_s=" << trafficStartS
+                  << " simulation_stop_s=" << simulationTimeS << "\n";
+        baselineApplications = InstallBaselineApplications(
+            nodes, interfaces, trafficStartS, simulationTimeS);
+        flowMonitor = flowMonitorHelper.InstallAll();
+        flowClassifier = DynamicCast<Ipv4FlowClassifier>(flowMonitorHelper.GetClassifier());
+        Simulator::Stop(Seconds(simulationTimeS));
     }
 
     if (enablePcap)
@@ -574,13 +779,25 @@ main(int argc, char* argv[])
     const bool topologyPassed = ValidateTopology(nodes, devices, interfaces, spacingM);
     const bool routeProbePassed =
         !routeProbeEnabled || ValidateRouteProbe(flowMonitor, flowClassifier, stationCount);
+    const bool baselinePassed =
+        !baselineEnabled ||
+        (WriteBaselineMetrics(baselineApplications,
+                              stationCount,
+                              seed,
+                              run,
+                              trafficStartS,
+                              simulationTimeS,
+                              csvPath) &&
+         ValidateBaselineFlows(flowMonitor, flowClassifier, stationCount));
     std::cout << "scenario_overall="
-              << (topologyPassed && routeProbePassed ? "PASS" : "FAIL") << "\n"
+              << (topologyPassed && routeProbePassed && baselinePassed ? "PASS" : "FAIL") << "\n"
               << "next_phase="
-              << (routeProbeEnabled ? "original-tcp-baseline"
-                                    : "install-static-host-routes-and-validate-with-udp")
+              << (baselineEnabled
+                      ? "integrate-read-only-catra-measurements"
+                      : routeProbeEnabled ? "original-tcp-baseline"
+                                          : "install-static-host-routes-and-validate-with-udp")
               << "\n";
 
     Simulator::Destroy();
-    return strict && !(topologyPassed && routeProbePassed) ? 1 : 0;
+    return strict && !(topologyPassed && routeProbePassed && baselinePassed) ? 1 : 0;
 }
