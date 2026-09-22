@@ -92,6 +92,40 @@ traffic=none
 
 Phase 3 owns static host-route population and bidirectional UDP validation.
 
+### Phase 3 n=3 implementation record (pending runtime validation)
+
+`catra-scenario1` now accepts `--mode=route-probe`. The mode installs explicit
+`/32` routes toward `R` through the next station on the right and explicit
+reverse routes toward `S2` through the next station on the left. Three small
+UDP probes exercise:
+
+```text
+long_forward:  S2 -> R, expected 2 hops when n=3
+long_reverse:  R -> S2, expected 2 hops when n=3
+short_forward: S1 -> R, expected 1 hop
+```
+
+FlowMonitor validates delivery and derives the observed IP hop count as:
+
+```text
+observed_hops = 1 + timesForwarded / rxPackets
+```
+
+The topology-only behavior remains available through `--mode=topology` and
+does not install applications or populated host routes. Build/runtime evidence
+for the new `n=3` route probe is still required because the Docker daemon was
+unavailable when this phase was added. The command to close the gate is:
+
+```bash
+docker compose exec -T ns3 ./ns3 build catra-scenario1 -j 2
+docker compose exec -T ns3 ./ns3 run \
+  "catra-scenario1 --mode=route-probe --n=3 --strict=true --printTopology=false" \
+  --no-build
+```
+
+Do not begin the TCP baseline until this run reports both
+`route_probe_overall=PASS` and `scenario_overall=PASS`.
+
 ### Algorithm 1 active-time measurement record
 
 The read-only `CatraActiveTimeEstimator` implements Algorithm 1's two packet
