@@ -143,6 +143,16 @@ Run the complete current `n=3` gate and terminal chart with:
 scripts/catra/run-scenario1-n3.sh
 ```
 
+For a quick functional smoke run, shorten only the simulation duration:
+
+```bash
+SIM_TIME=10 scripts/catra/run-scenario1-n3.sh /tmp/catra-scenario1-smoke.csv
+```
+
+The paper-aligned result still requires the default 300 s run. In the current
+debug build, 10 simulated seconds take about 11 wall-clock seconds, so a full
+run takes several minutes and writes its CSV row only after simulation ends.
+
 The runner always executes the bidirectional UDP route probe before the TCP
 baseline. A full 300 s Tahoe run on 2026-09-22 reported
 `scenario_overall=PASS` with Flow 1 = 1.554453 Mbps, Flow 2 = 0.881722 Mbps,
