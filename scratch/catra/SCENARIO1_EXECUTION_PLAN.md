@@ -59,7 +59,8 @@ và Jain fairness index.
 ### 2.3. Chưa có
 
 - CATRA MAC CW controller và runtime backoff hook.
-- CATRA TCP per-flow estimator/controller và packet-generation delay hook.
+- CATRA TCP đã có pure Algorithm 2 decision controller và probe; chưa có
+  per-flow runtime estimator, socket binding hoặc packet-generation delay hook.
 - Mode `catra-mac`, `catra-full`, statistical matrix và kết luận Fig. 4.
 
 ### 2.4. Ranh giới quan trọng
@@ -718,7 +719,9 @@ scratch/catra/
 ├── flow-counting.cc/.h             # pure flow-count model
 ├── active-time-estimation/         # existing Algorithm 1 components
 ├── catra-mac-controller.cc/.h      # pure decision + runtime adapter
-├── catra-tcp-controller.cc/.h      # pure decision + runtime adapter
+├── tcp_rate_adaptation/
+│   ├── catra-tcp-controller.cc/.h  # pure Algorithm 2 decision
+│   └── catra-tcp-controller-probe.cc
 ├── NS3_SOURCE_MAPPING.md
 ├── README.md
 └── SCENARIO1_EXECUTION_PLAN.md

@@ -79,3 +79,8 @@ The following mapping must be completed before the first cwnd/delay write:
 - NewReno ACK, loss, Fast Recovery and RTO call order.
 - Safe controller hook preserving TCP recovery state.
 - Application scheduling hook used for `deltaF` without blocking simulation.
+
+The pure Algorithm 2 equations and decisions are implemented in
+`tcp_rate_adaptation/catra-tcp-controller.{h,cc}` and validated independently. The remaining items
+above concern runtime ownership/integration and are intentionally not hidden
+inside the pure controller.

@@ -37,3 +37,13 @@ build_exec(
                     "${ns3-contrib-libs}"
   EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/active-time-estimation
 )
+
+build_exec(
+  EXECNAME catra-tcp-controller-probe
+  EXECNAME_PREFIX scratch_catra_tcp_rate_adaptation_
+  SOURCE_FILES tcp_rate_adaptation/catra-tcp-controller-probe.cc
+               tcp_rate_adaptation/catra-tcp-controller.cc
+  LIBRARIES_TO_LINK "${ns3-libs}"
+                    "${ns3-contrib-libs}"
+  EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/tcp_rate_adaptation
+)

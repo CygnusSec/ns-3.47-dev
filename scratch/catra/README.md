@@ -26,13 +26,16 @@ scratch/catra/
 │   ├── catra-active-time-probe.cc
 │   ├── catra-mac-transaction-tracker.cc/.h
 │   └── observe-mac-frame.cc/.h
+├── tcp_rate_adaptation/
+│   ├── catra-tcp-controller.cc/.h
+│   └── catra-tcp-controller-probe.cc
 ├── catra-phy-range-probe.cc
 └── catra-scenario1.cc
 ```
 
 `CMakeLists.txt` declares each executable separately because both C++ files
-contain `main()`. The executable names remain `catra-phy-range-probe` and
-`catra-scenario1`, independent of their physical source directory.
+contain `main()`. Executable names remain independent of their physical source
+directories, including `catra-tcp-controller-probe` for Algorithm 2.
 
 ## Source classification
 
@@ -218,9 +221,35 @@ written to `station-state.csv`. For the paper's three-node example, runtime
 validation reports S2 `(1,3,0,3,1/3)`, S1 `(2,3,0,3,2/3)`, and R
 `(0,2,1,3,0)` for `(nSEND,nTX,nCS,ntotal,FBRs)`.
 
-This mode has no CW or TCP control side effects. CATRA MAC, per-flow Algorithm
-2 state, and CATRA TCP remain unimplemented until the source mappings below
-are complete.
+This mode has no CW or TCP control side effects. CATRA MAC, per-flow runtime
+state, and live TCP control remain unimplemented until the source mappings
+below are complete.
+
+### Algorithm 2 decision implementation
+
+`tcp_rate_adaptation/catra-tcp-controller.{h,cc}` contains the side-effect-free
+Algorithm 2 decision core. All ns-3 TCP sequence/window inputs are converted to bytes and
+then to MSS units before evaluating the paper equations:
+
+```text
+FBRf = 1 / ntotal
+RBRf = TActiveFlow / EP
+Ttr_f = TActiveFlow / Nf
+win = (cwndBytes + highestAckBytes - currentSequenceBytes) / MSS
+Tf = ntotal * win * Ttr_f
+ratio = RBRf / FBRf
+```
+
+For `ratio > 1.05`, the decision reduces `cwnd` by one MSS (with a one-MSS
+floor) and returns `deltaF = ratio * Tf`. For `ratio < 0.7`, it increases
+`cwnd` by one MSS and returns zero delay. Equality at either threshold selects
+the original TCP path, matching the strict inequalities in Algorithm 2.
+
+The `catra-tcp-controller-probe` target validates the equations, threshold
+boundaries, one-MSS floor, and inactive-flow handling. This is the verified
+Algorithm 2 core, not yet a claim that Scenario 1 applies its decisions to a
+live socket: per-flow MAC accounting and the socket/application delay hook
+remain integration work.
 
 Run the strict probe with:
 
