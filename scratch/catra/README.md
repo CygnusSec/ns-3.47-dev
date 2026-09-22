@@ -228,14 +228,16 @@ below are complete.
 ### Algorithm 2 decision implementation
 
 `tcp_rate_adaptation/catra-tcp-controller.{h,cc}` contains the side-effect-free
-Algorithm 2 decision core. All ns-3 TCP sequence/window inputs are converted to bytes and
+Algorithm 2 decision core. All ns-3 TCP window inputs use byte units and
+`bytesInFlight` replaces the algebraically equivalent
+`currentSequence-highestAck` term, avoiding TCP sequence wrap-around errors:
 then to MSS units before evaluating the paper equations:
 
 ```text
-FBRf = 1 / ntotal
-RBRf = TActiveFlow / EP
+FBRf = 1 / ntotal                         # calculated internally
+RBRf = TActiveFlow / EP                  # calculated internally
 Ttr_f = TActiveFlow / Nf
-win = (cwndBytes + highestAckBytes - currentSequenceBytes) / MSS
+win = (cwndBytes - bytesInFlight) / MSS
 Tf = ntotal * win * Ttr_f
 ratio = RBRf / FBRf
 ```
@@ -250,6 +252,11 @@ boundaries, one-MSS floor, and inactive-flow handling. This is the verified
 Algorithm 2 core, not yet a claim that Scenario 1 applies its decisions to a
 live socket: per-flow MAC accounting and the socket/application delay hook
 remain integration work.
+
+The probe enables detailed logging by default. Each case prints the inputs,
+TCP state, thresholds, ratio, `Ttr_f`, `win`, `Tf`, selected branch, cwnd
+change, and `deltaF`. Use `--verbose=false` when only PASS/FAIL output is
+needed.
 
 Run the strict probe with:
 

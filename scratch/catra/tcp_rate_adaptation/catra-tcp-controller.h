@@ -22,20 +22,20 @@ enum class CatraTcpAction
 
 struct CatraTcpInputs
 {
-    double fairBandwidthRatio{}; //!< FBRf = 1 / ntotal.
-    double realBandwidthRatio{}; //!< RBRf = TActiveFlow / EP.
     Time activeTime{};           //!< TActiveFlow accumulated during the EP.
+    Time estimationPeriod{};     //!< EP used to derive RBRf.
     uint64_t packetCount{};      //!< Nf packets transmitted during the EP.
     uint32_t nTotal{};           //!< Flows sharing the examined channel.
     uint32_t cwndBytes{};
     uint32_t segmentSizeBytes{};
-    uint32_t highestAckBytes{};
-    uint32_t currentSequenceBytes{};
+    uint32_t bytesInFlight{};    //!< cur_seqno - highest_ack in ns-3 byte units.
 };
 
 struct CatraTcpDecision
 {
     CatraTcpAction action{CatraTcpAction::NO_DECISION};
+    double fairBandwidthRatio{}; //!< FBRf = 1 / ntotal.
+    double realBandwidthRatio{}; //!< RBRf = TActiveFlow / EP.
     double ratio{};              //!< RBRf / FBRf.
     Time averageTxTime{};        //!< Ttr_f = TActiveFlow / Nf.
     uint64_t winBytes{};         //!< cwnd + highestAck - currentSequence.

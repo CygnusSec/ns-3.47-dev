@@ -18,21 +18,21 @@ CalculateCatraTcpDecision(const CatraTcpInputs& inputs,
 {
     CatraTcpDecision decision;
     decision.newCwndBytes = inputs.cwndBytes;
-    if (!(inputs.fairBandwidthRatio > 0.0) || !std::isfinite(inputs.fairBandwidthRatio) ||
-        inputs.realBandwidthRatio < 0.0 || !std::isfinite(inputs.realBandwidthRatio) ||
+    if (inputs.activeTime.IsNegative() || !inputs.estimationPeriod.IsStrictlyPositive() ||
         inputs.packetCount == 0 || inputs.nTotal == 0 || inputs.segmentSizeBytes == 0 ||
-        inputs.cwndBytes < inputs.segmentSizeBytes || lowThreshold < 0.0 ||
-        highThreshold < lowThreshold)
+        inputs.cwndBytes < inputs.segmentSizeBytes || inputs.bytesInFlight > inputs.cwndBytes ||
+        lowThreshold < 0.0 || lowThreshold > 1.0 || highThreshold < 1.0 ||
+        !std::isfinite(lowThreshold) || !std::isfinite(highThreshold))
     {
         return decision;
     }
 
-    decision.ratio = inputs.realBandwidthRatio / inputs.fairBandwidthRatio;
+    decision.fairBandwidthRatio = 1.0 / inputs.nTotal;
+    decision.realBandwidthRatio =
+        inputs.activeTime.GetSeconds() / inputs.estimationPeriod.GetSeconds();
+    decision.ratio = decision.realBandwidthRatio / decision.fairBandwidthRatio;
     decision.averageTxTime = inputs.activeTime / inputs.packetCount;
-    const int64_t outstandingOffset = static_cast<int64_t>(inputs.highestAckBytes) -
-                                      static_cast<int64_t>(inputs.currentSequenceBytes);
-    const int64_t winBytes = static_cast<int64_t>(inputs.cwndBytes) + outstandingOffset;
-    decision.winBytes = static_cast<uint64_t>(std::max<int64_t>(0, winBytes));
+    decision.winBytes = inputs.cwndBytes - inputs.bytesInFlight;
     decision.winPackets = static_cast<double>(decision.winBytes) / inputs.segmentSizeBytes;
     decision.fairTransmissionTime = Seconds(inputs.nTotal * decision.winPackets *
                                             decision.averageTxTime.GetSeconds());
@@ -49,8 +49,11 @@ CalculateCatraTcpDecision(const CatraTcpInputs& inputs,
         decision.action = CatraTcpAction::INCREASE;
         const uint64_t increased =
             static_cast<uint64_t>(inputs.cwndBytes) + inputs.segmentSizeBytes;
-        decision.newCwndBytes = static_cast<uint32_t>(
-            std::min<uint64_t>(increased, std::numeric_limits<uint32_t>::max()));
+        const uint64_t maximumAligned =
+            std::numeric_limits<uint32_t>::max() -
+            (std::numeric_limits<uint32_t>::max() % inputs.segmentSizeBytes);
+        decision.newCwndBytes =
+            static_cast<uint32_t>(std::min<uint64_t>(increased, maximumAligned));
     }
     else
     {

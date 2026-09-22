@@ -524,14 +524,16 @@ FBRf = 1 / ntotal
 RBRf = TActiveFlow / EP
 Nf = transmitted packet count in EP
 Ttr_f = TActiveFlow / Nf
-win = cwnd + highestAck - currentSequence
+win = cwnd - bytesInFlight
 Tf = ntotal * win * Ttr_f
 ratio = RBRf / FBRf
 ```
 
 ### Quy tắc unit
 
-- `cwnd`, highest ACK và current sequence phải cùng đơn vị byte/sequence byte.
+- `cwnd` và `bytesInFlight` phải cùng đơn vị byte. `bytesInFlight` tương đương
+  `currentSequence-highestAck` nhưng không tự trừ raw sequence number nên tránh
+  lỗi wrap-around.
 - `Ttr_f`, `Tf`, `deltaF` dùng ns-3 `Time` hoặc seconds có conversion rõ.
 - `Nf=0` không được chia; sample được đánh dấu inactive/no-decision.
 
