@@ -205,9 +205,22 @@ Both observations are assembled into `CatraAlgorithmPacket p`, and
 then `ACK && TCPDATA`, otherwise `DATA && TCPACK`. No extra classifier condition
 is inserted between those tests and the active-time accumulator.
 
-`RBRs = TActive / EP` is reported for the later CATRA stages. `nSEND`, `nTX`,
-`nCS`, `FBRs`, CW adaptation, and CATRA TCP control remain later work and must
-not be inferred from this Algorithm 1 probe.
+`RBRs = TActive / EP` is reported for the later CATRA stages. The standalone
+probe does not derive flow counts; Scenario 1's `measure-only` mode adds those
+topology-specific counts. CW adaptation and CATRA TCP control remain later
+work and must not be inferred from either measurement path.
+
+The same read-only implementation is now integrated into Scenario 1 through
+`--mode=measure-only`. Every station owns a separate estimator and MAC
+transaction tracker. The fixed Scenario 1 route model derives `nSEND`, `nTX`,
+the boolean hidden-flow contribution `nCS`, `ntotal`, and `FBRs`; every EP is
+written to `station-state.csv`. For the paper's three-node example, runtime
+validation reports S2 `(1,3,0,3,1/3)`, S1 `(2,3,0,3,2/3)`, and R
+`(0,2,1,3,0)` for `(nSEND,nTX,nCS,ntotal,FBRs)`.
+
+This mode has no CW or TCP control side effects. CATRA MAC, per-flow Algorithm
+2 state, and CATRA TCP remain unimplemented until the source mappings below
+are complete.
 
 Run the strict probe with:
 
@@ -411,13 +424,15 @@ These values are recorded now but must not change baseline behavior:
 | Estimation period (`EP`) | 2 s | `PAPER` |
 | High threshold (`Highth`) | 1.05 | `PAPER` |
 | Low threshold (`Lowth`) | 0.7 | `PAPER` |
-| Paper CWmin | 32 | `PAPER`, `UNRESOLVED` mapping |
-| Paper CWmax | 1024 | `PAPER`, `UNRESOLVED` mapping |
+| Paper CWmin | 32 slots | `PAPER`; ns-3 inclusive value `31` |
+| Paper CWmax | 1024 slots | `PAPER`; ns-3 inclusive value `1023` |
 
-The paper's CW values must not be copied directly into `Txop::SetMinCw()` or
-`Txop::SetMaxCw()` until the NS-2 and ns-3 contention-window representations
-are reconciled. CATRA measurement state must be per station and per flow; it
-must not use a process-wide singleton.
+ns-3 samples backoff with `GetInteger(0, cw)`, so its stored CW is an inclusive
+upper bound. Therefore paper window cardinality `W` maps to ns-3 `cw=W-1`.
+The standard 802.11b defaults are already `31/1023`, exactly representing the
+paper's `32/1024`. CATRA formulas must operate on `W=cw+1` and convert back.
+Measurement state is per station and per flow; it must not use a process-wide
+singleton.
 
 ## Planned source ownership
 

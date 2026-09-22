@@ -20,6 +20,7 @@
 
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -254,20 +255,24 @@ main(int argc, char* argv[])
     std::vector<std::unique_ptr<CatraActiveTimeEstimator>> estimators;
     std::vector<std::unique_ptr<CatraMacTransactionTracker>> trackers;
     std::vector<uint32_t> initialCw;
+    std::map<Mac48Address, Ptr<WifiNetDevice>> devicesByAddress;
+    for (uint32_t index = 0; index < devices.GetN(); ++index)
+    {
+        Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice>(devices.Get(index));
+        devicesByAddress.emplace(Mac48Address::ConvertFrom(device->GetAddress()), device);
+    }
     for (uint32_t index = 0; index < nodes.GetN(); ++index)
     {
         auto estimator = std::make_unique<CatraActiveTimeEstimator>(
             index, Seconds(estimationPeriodS), 0.8, &PrintSample);
         auto tracker = std::make_unique<CatraMacTransactionTracker>();
         Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
-        Ptr<WifiNetDevice> peerDevice =
-            DynamicCast<WifiNetDevice>(devices.Get(index == 0 ? 1 : 0));
         const bool receivedConnected = localDevice->GetPhy()->TraceConnectWithoutContext(
             "MonitorSnifferRx",
             MakeBoundCallback(&ObserveMacFrameRx,
                               estimator.get(),
                               tracker.get(),
-                              peerDevice,
+                              &devicesByAddress,
                               localDevice));
         const bool transmittedConnected = localDevice->GetPhy()->TraceConnectWithoutContext(
             "MonitorSnifferTx",

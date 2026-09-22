@@ -60,7 +60,7 @@ CalculateTransactionTiming(Ptr<WifiNetDevice> sender,
 void
 ObserveMacFrameRx(CatraActiveTimeEstimator* estimator,
                   CatraMacTransactionTracker* tracker,
-                  Ptr<WifiNetDevice> peerSender,
+                  const std::map<Mac48Address, Ptr<WifiNetDevice>>* devicesByAddress,
                   Ptr<WifiNetDevice> localReceiver,
                   Ptr<const Packet> packet,
                   uint16_t,
@@ -89,6 +89,12 @@ ObserveMacFrameRx(CatraActiveTimeEstimator* estimator,
     }
 
     const ParsedTcpPacket parsed = ParseTcpPayload(payload);
+    const auto sender = devicesByAddress->find(macHeader.GetAddr2());
+    if (sender == devicesByAddress->end())
+    {
+        return;
+    }
+    Ptr<WifiNetDevice> peerSender = sender->second;
     if (parsed.type == ParsedTcpPacketType::DATA)
     {
         tracker->Store(macHeader.GetAddr2(),

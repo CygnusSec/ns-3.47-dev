@@ -10,12 +10,14 @@
 
 #include "ns3/wifi-module.h"
 
+#include <map>
+
 namespace ns3
 {
 
 void ObserveMacFrameRx(CatraActiveTimeEstimator* estimator,
                        CatraMacTransactionTracker* tracker,
-                       Ptr<WifiNetDevice> peerSender,
+                       const std::map<Mac48Address, Ptr<WifiNetDevice>>* devicesByAddress,
                        Ptr<WifiNetDevice> localReceiver,
                        Ptr<const Packet> packet,
                        uint16_t channelFreqMhz,

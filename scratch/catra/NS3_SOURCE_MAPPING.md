@@ -49,15 +49,26 @@ distant destination from being treated as a directly reachable Wi-Fi neighbor.
 
 The existing probe does not write CW and is not a CATRA MAC controller.
 
-## Required before CATRA MAC
+## CATRA MAC mapping status
 
-The following mapping must be completed before the first CW write:
+- Paper `CWmin=32` and `CWmax=1024` are window cardinalities. ns-3 stores the
+  inclusive maximum sampled by `UniformRandomVariable::GetInteger(0, cw)`, so
+  their exact ns-3 representations are `31` and `1023`. The configured
+  802.11b defaults already resolve to those values in
+  `WifiMac::ConfigurePhyDependentParameters`.
+- `Txop::GenerateBackoff` samples the next backoff and calls
+  `StartBackoffNow`; `NotifyChannelReleased` generates the next backoff after
+  a completed channel access.
+- `Txop::ResetCw` restores `cwMin`; `UpdateFailedCw` applies
+  `min(cwMax, 2^retry * (cwMin + 1) - 1)` before a subsequent backoff.
+- CATRA arithmetic must use window cardinality `W = cw + 1`, then convert the
+  result back to an inclusive ns-3 value `cw = W - 1`.
 
-- Exact owner and call order of backoff generation.
-- Exact CW update/reset sequence after success and retry failure.
-- Paper `CWmin=32`, `CWmax=1024` mapping to ns-3 inclusive slot values.
+Still required before the first CW write:
+
 - Definition and lifetime of `CW_original` used by the CATRA formula.
-- Safe runtime hook that does not bypass DCF retry/BEB state.
+- A safe runtime hook at the new-backoff boundary that preserves retry/BEB
+  state instead of asynchronously replacing a live `Txop` CW.
 
 ## Required before CATRA TCP
 

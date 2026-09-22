@@ -50,14 +50,19 @@ và Jain fairness index.
 
 - Đã có static host routes cho forward/reverse direction và UDP route probe.
 - Đã có hai saturated TCP flows, hai sinks và baseline CSV cho mode `baseline`.
-- Route probe và baseline `n=3` đã build và runtime validation PASS.
-- `nSEND`, `nTX`, `nCS`, `ntotal`, `FBRS`.
-- Tích hợp Algorithm 1 estimator vào từng station của Scenario 1.
-- CATRA MAC CW controller.
-- CATRA TCP per-flow estimator/controller.
-- Experiment runner và Fig. 4 plotting pipeline.
+- Route probe `n=3..6` và baseline smoke `n=3..6` đã build và runtime validation PASS.
+- Mode `measure-only` đã tích hợp một Algorithm 1 estimator/tracker riêng cho
+  từng station, tính `nSEND`, `nTX`, `nCS`, `ntotal`, `FBRS`, và ghi station CSV.
+- Đã có runner `n=3` và terminal plot cho baseline; chưa có statistical runner
+  hoặc pipeline tái tạo đầy đủ Fig. 4.
 
-### 2.3. Ranh giới quan trọng
+### 2.3. Chưa có
+
+- CATRA MAC CW controller và runtime backoff hook.
+- CATRA TCP per-flow estimator/controller và packet-generation delay hook.
+- Mode `catra-mac`, `catra-full`, statistical matrix và kết luận Fig. 4.
+
+### 2.4. Ranh giới quan trọng
 
 - Paper dùng TCP Tahoe. Checkout hiện tại cung cấp `CatraTcpTahoe`: Reno
   slow-start/congestion-avoidance kết hợp Tahoe one-MSS loss recovery và tắt

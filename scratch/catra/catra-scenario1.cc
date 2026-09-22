@@ -9,6 +9,9 @@
 // implementation. CATRA controllers remain deliberately out of scope here.
 
 #include "tcp-tahoe.h"
+#include "active-time-estimation/catra-active-time-estimator.h"
+#include "active-time-estimation/catra-mac-transaction-tracker.h"
+#include "active-time-estimation/observe-mac-frame.h"
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
@@ -26,8 +29,11 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace ns3;
 
@@ -53,6 +59,45 @@ struct BaselineApplications
     Ptr<PacketSink> flow1Sink;
     Ptr<PacketSink> flow2Sink;
 };
+
+struct StationFlowCounts
+{
+    uint32_t nSend{};
+    uint32_t nTx{};
+    uint32_t nCs{};
+    uint32_t nTotal{};
+    double fairBandwidthRatio{};
+};
+
+/** Derive the paper's per-station flow counts from Scenario 1's fixed routes. */
+std::vector<StationFlowCounts>
+CalculateStationFlowCounts(uint32_t stationCount)
+{
+    std::vector<StationFlowCounts> result(stationCount);
+    std::vector<uint32_t> transmitters;
+    for (uint32_t sender = 0; sender + 1 < stationCount; ++sender)
+    {
+        transmitters.push_back(sender); // One Flow 2 transmission per hop.
+    }
+    transmitters.push_back(stationCount - 2); // Flow 1 transmission from S1.
+
+    for (uint32_t station = 0; station < stationCount; ++station)
+    {
+        auto& counts = result.at(station);
+        for (uint32_t sender : transmitters)
+        {
+            const uint32_t separation = sender > station ? sender - station : station - sender;
+            counts.nSend += sender == station;
+            counts.nTx += separation <= 1;
+            counts.nCs = counts.nCs || separation == 2;
+        }
+        counts.nTotal = counts.nTx + counts.nCs;
+        counts.fairBandwidthRatio = counts.nTotal == 0
+                                        ? 0.0
+                                        : static_cast<double>(counts.nSend) / counts.nTotal;
+    }
+    return result;
+}
 
 /** Return the paper role associated with a chain index. */
 std::string
@@ -536,12 +581,14 @@ main(int argc, char* argv[])
     double simulationTimeS{300.0};
     double trafficStartS{1.0};
     std::string csvPath{"results/catra/scenario1/tahoe-baseline.csv"};
+    std::string stationCsvPath{"results/catra/scenario1/station-state.csv"};
+    double estimationPeriodS{2.0};
 
     // PHY defaults mirror the values accepted by catra-phy-range-probe.  They
     // remain command-line options so a future recalibration can be evaluated
     // without editing the scenario source.
     CommandLine cmd(__FILE__);
-    cmd.AddValue("mode", "Scenario phase: topology, route-probe, or baseline", mode);
+    cmd.AddValue("mode", "Scenario phase: topology, route-probe, baseline, or measure-only", mode);
     cmd.AddValue("n", "Number of stations in the Scenario 1 chain (3 through 6)", stationCount);
     cmd.AddValue("spacing", "Distance between adjacent stations in meters", spacingM);
     cmd.AddValue("txPower", "Fixed transmit power in dBm", txPowerDbm);
@@ -560,29 +607,35 @@ main(int argc, char* argv[])
     cmd.AddValue("simTime", "Simulation stop time in seconds", simulationTimeS);
     cmd.AddValue("trafficStart", "TCP source start time in seconds", trafficStartS);
     cmd.AddValue("csv", "Baseline result CSV path", csvPath);
+    cmd.AddValue("stationCsv", "CATRA station measurement CSV path", stationCsvPath);
+    cmd.AddValue("ep", "CATRA estimation period in seconds", estimationPeriodS);
     cmd.Parse(argc, argv);
 
     NS_ABORT_MSG_IF(stationCount < MIN_STATIONS || stationCount > MAX_STATIONS,
                     "Scenario 1 requires n in the range [3, 6]");
-    NS_ABORT_MSG_IF(mode != "topology" && mode != "route-probe" && mode != "baseline",
-                    "mode must be topology, route-probe, or baseline");
+    NS_ABORT_MSG_IF(mode != "topology" && mode != "route-probe" && mode != "baseline" &&
+                        mode != "measure-only",
+                    "mode must be topology, route-probe, baseline, or measure-only");
     NS_ABORT_MSG_IF(spacingM <= 0.0, "spacing must be positive");
     NS_ABORT_MSG_IF(systemLoss < 1.0, "systemLoss must be at least 1.0");
     NS_ABORT_MSG_IF(simulationTimeS <= trafficStartS,
                     "simTime must be greater than trafficStart");
+    NS_ABORT_MSG_IF(estimationPeriodS <= 0.0, "ep must be positive");
 
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(run);
 
     const bool routeProbeEnabled = mode == "route-probe";
-    const bool baselineEnabled = mode == "baseline";
+    const bool measurementEnabled = mode == "measure-only";
+    const bool baselineEnabled = mode == "baseline" || measurementEnabled;
     const bool routesEnabled = routeProbeEnabled || baselineEnabled;
     std::cout << "\n=== 1. Scenario 1 configuration ===\n"
               << "mode=" << mode
               << " phase=" << (routeProbeEnabled   ? "static-route-validation"
+                                 : measurementEnabled ? "read-only-catra-measurement"
                                  : baselineEnabled ? "original-tcp-baseline"
                                                    : "topology-only")
-              << " catra=disabled\n"
+              << " catra=" << (measurementEnabled ? "measurement-only" : "disabled") << "\n"
               << "stations=" << stationCount << " spacing_m=" << spacingM
               << " s2_index=0 s1_index=" << stationCount - 2
               << " receiver_index=" << stationCount - 1 << "\n"
@@ -591,7 +644,7 @@ main(int argc, char* argv[])
               << " verbose_details=" << std::boolalpha << verboseDetails << "\n"
               << "[PHASE-BOUNDARY] routes_populated=" << routesEnabled
               << " udp=" << routeProbeEnabled << " tcp=" << baselineEnabled
-              << " catra=false\n";
+              << " catra_measurement=" << measurementEnabled << " catra_control=false\n";
 
     // Set non-unicast mode even though Phase 2 sends no frames.  This keeps the
     // installed Wi-Fi configuration identical to the validated Phase 1 PHY and
@@ -667,6 +720,84 @@ main(int argc, char* argv[])
     mac.SetType("ns3::AdhocWifiMac");
     NetDeviceContainer devices = wifi.Install(phy, mac, nodes);
     wifi.AssignStreams(devices, 0);
+    Ptr<Txop> referenceTxop = DynamicCast<WifiNetDevice>(devices.Get(0))->GetMac()->GetTxop();
+    std::cout << "cw_representation=ns3-inclusive-upper-bound"
+              << " resolved_cw_min=" << referenceTxop->GetMinCw(0)
+              << " resolved_cw_max=" << referenceTxop->GetMaxCw(0)
+              << " paper_window_min=" << referenceTxop->GetMinCw(0) + 1
+              << " paper_window_max=" << referenceTxop->GetMaxCw(0) + 1 << "\n";
+
+    std::vector<std::unique_ptr<CatraActiveTimeEstimator>> estimators;
+    std::vector<std::unique_ptr<CatraMacTransactionTracker>> trackers;
+    std::map<Mac48Address, Ptr<WifiNetDevice>> devicesByAddress;
+    bool measurementPassed = true;
+    if (measurementEnabled)
+    {
+        const auto counts = CalculateStationFlowCounts(stationCount);
+        const std::filesystem::path stationOutput(stationCsvPath);
+        if (!stationOutput.parent_path().empty())
+        {
+            std::filesystem::create_directories(stationOutput.parent_path());
+        }
+        const bool writeHeader = !std::filesystem::exists(stationOutput) ||
+                                 std::filesystem::file_size(stationOutput) == 0;
+        if (writeHeader)
+        {
+            std::ofstream output(stationCsvPath, std::ios::app);
+            output << "time,node,nSEND,nTX,nCS,ntotal,FBRS,raw_active_s,smoothed_active_s,"
+                      "RBRS,packet_count,data_count,tcp_ack_count\n";
+        }
+        for (uint32_t index = 0; index < devices.GetN(); ++index)
+        {
+            Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice>(devices.Get(index));
+            devicesByAddress.emplace(Mac48Address::ConvertFrom(device->GetAddress()), device);
+        }
+        for (uint32_t index = 0; index < devices.GetN(); ++index)
+        {
+            auto report = [&, index, counts](const CatraActiveTimeSample& sample) {
+                const auto& flowCounts = counts.at(index);
+                const uint64_t packetCount = sample.tcpDataPackets + sample.tcpAckPackets;
+                const bool valid = std::isfinite(sample.realBandwidthRatio) &&
+                                   sample.realBandwidthRatio >= 0.0 && flowCounts.nTotal > 0;
+                measurementPassed = measurementPassed && valid;
+                std::ofstream output(stationCsvPath, std::ios::app);
+                output << std::fixed << std::setprecision(6) << sample.periodEnd.GetSeconds() << ','
+                       << index << ',' << flowCounts.nSend << ',' << flowCounts.nTx << ','
+                       << flowCounts.nCs << ',' << flowCounts.nTotal << ','
+                       << flowCounts.fairBandwidthRatio << ',' << sample.rawActiveTime.GetSeconds()
+                       << ',' << sample.smoothedActiveTime.GetSeconds() << ','
+                       << sample.realBandwidthRatio << ',' << packetCount << ','
+                       << sample.tcpDataPackets << ',' << sample.tcpAckPackets << '\n';
+                std::cout << "[CATRA-STATION] time_s=" << sample.periodEnd.GetSeconds()
+                          << " node=" << index << " nSEND=" << flowCounts.nSend
+                          << " nTX=" << flowCounts.nTx << " nCS=" << flowCounts.nCs
+                          << " ntotal=" << flowCounts.nTotal
+                          << " FBRS=" << flowCounts.fairBandwidthRatio
+                          << " RBRS=" << sample.realBandwidthRatio
+                          << " validation=" << (valid ? "PASS" : "FAIL") << "\n";
+            };
+            auto estimator = std::make_unique<CatraActiveTimeEstimator>(
+                index, Seconds(estimationPeriodS), 0.8, report);
+            auto tracker = std::make_unique<CatraMacTransactionTracker>();
+            Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
+            const bool rxConnected = localDevice->GetPhy()->TraceConnectWithoutContext(
+                "MonitorSnifferRx",
+                MakeBoundCallback(&ObserveMacFrameRx,
+                                  estimator.get(),
+                                  tracker.get(),
+                                  &devicesByAddress,
+                                  localDevice));
+            const bool txConnected = localDevice->GetPhy()->TraceConnectWithoutContext(
+                "MonitorSnifferTx",
+                MakeBoundCallback(&ObserveMacFrameTx, estimator.get(), tracker.get()));
+            NS_ABORT_MSG_IF(!rxConnected || !txConnected,
+                            "Failed to connect Scenario 1 CATRA measurement traces");
+            estimator->Start(Seconds(trafficStartS));
+            estimator->Stop(Seconds(simulationTimeS));
+            estimators.push_back(std::move(estimator));
+            trackers.push_back(std::move(tracker));
+        }
+    }
 
     if (verboseDetails)
     {
@@ -789,15 +920,30 @@ main(int argc, char* argv[])
                               simulationTimeS,
                               csvPath) &&
          ValidateBaselineFlows(flowMonitor, flowClassifier, stationCount));
+    if (measurementEnabled)
+    {
+        bool observed = false;
+        for (const auto& estimator : estimators)
+        {
+            observed = observed || estimator->GetTotalTcpDataPackets() > 0 ||
+                       estimator->GetTotalTcpAckPackets() > 0;
+        }
+        measurementPassed = measurementPassed && observed;
+        std::cout << "catra_measurement_overall="
+                  << (measurementPassed ? "PASS" : "FAIL") << "\n";
+    }
+    const bool overallPassed =
+        topologyPassed && routeProbePassed && baselinePassed && measurementPassed;
     std::cout << "scenario_overall="
-              << (topologyPassed && routeProbePassed && baselinePassed ? "PASS" : "FAIL") << "\n"
+              << (overallPassed ? "PASS" : "FAIL") << "\n"
               << "next_phase="
-              << (baselineEnabled
-                      ? "integrate-read-only-catra-measurements"
+              << (measurementEnabled
+                      ? "complete-cw-mapping-before-catra-mac"
+                      : baselineEnabled ? "integrate-read-only-catra-measurements"
                       : routeProbeEnabled ? "original-tcp-baseline"
                                           : "install-static-host-routes-and-validate-with-udp")
               << "\n";
 
     Simulator::Destroy();
-    return strict && !(topologyPassed && routeProbePassed && baselinePassed) ? 1 : 0;
+    return strict && !overallPassed ? 1 : 0;
 }
