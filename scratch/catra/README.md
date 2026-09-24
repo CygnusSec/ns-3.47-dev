@@ -225,6 +225,17 @@ This mode has no CW or TCP control side effects. CATRA MAC, per-flow runtime
 state, and live TCP control remain unimplemented until the source mappings
 below are complete.
 
+Run the Scenario 1 Algorithm 1 time series with:
+
+```bash
+scripts/catra/run-algorithm1-scenario1.sh
+```
+
+`STATIONS`, `SIM_TIME`, `EP`, `RUN`, and `OUTPUT_DIR` may be overridden;
+`STATIONS="3 4 5 6"` runs the complete Scenario 1 station-count matrix. The
+station CSV includes `RBRs`, raw/smoothed active time, packet composition,
+average observed CW, and every transaction-time component for each EP.
+
 ### Algorithm 2 decision implementation
 
 `tcp_rate_adaptation/catra-tcp-controller.{h,cc}` contains the side-effect-free

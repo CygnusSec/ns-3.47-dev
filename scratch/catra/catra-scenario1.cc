@@ -744,8 +744,10 @@ main(int argc, char* argv[])
         if (writeHeader)
         {
             std::ofstream output(stationCsvPath, std::ios::app);
-            output << "time,node,nSEND,nTX,nCS,ntotal,FBRS,raw_active_s,smoothed_active_s,"
-                      "RBRS,packet_count,data_count,tcp_ack_count\n";
+            output << "time,node,role,nSEND,nTX,nCS,ntotal,FBRS,raw_active_s,"
+                      "smoothed_active_s,RBRS,packet_count,data_count,tcp_ack_count,"
+                      "average_cw,expected_backoff_s,rts_s,cts_s,tcp_frame_s,mac_ack_s,"
+                      "interframe_s\n";
         }
         for (uint32_t index = 0; index < devices.GetN(); ++index)
         {
@@ -762,18 +764,32 @@ main(int argc, char* argv[])
                 measurementPassed = measurementPassed && valid;
                 std::ofstream output(stationCsvPath, std::ios::app);
                 output << std::fixed << std::setprecision(6) << sample.periodEnd.GetSeconds() << ','
-                       << index << ',' << flowCounts.nSend << ',' << flowCounts.nTx << ','
+                       << index << ',' << GetNodeRole(index, stationCount) << ','
+                       << flowCounts.nSend << ',' << flowCounts.nTx << ','
                        << flowCounts.nCs << ',' << flowCounts.nTotal << ','
                        << flowCounts.fairBandwidthRatio << ',' << sample.rawActiveTime.GetSeconds()
                        << ',' << sample.smoothedActiveTime.GetSeconds() << ','
                        << sample.realBandwidthRatio << ',' << packetCount << ','
-                       << sample.tcpDataPackets << ',' << sample.tcpAckPackets << '\n';
+                       << sample.tcpDataPackets << ',' << sample.tcpAckPackets << ','
+                       << sample.averageContentionWindow << ','
+                       << sample.expectedBackoffTime.GetSeconds() << ','
+                       << sample.rtsTime.GetSeconds() << ',' << sample.ctsTime.GetSeconds() << ','
+                       << sample.tcpFrameTime.GetSeconds() << ','
+                       << sample.macAckTime.GetSeconds() << ','
+                       << sample.interframeTime.GetSeconds() << '\n';
                 std::cout << "[CATRA-STATION] time_s=" << sample.periodEnd.GetSeconds()
-                          << " node=" << index << " nSEND=" << flowCounts.nSend
+                          << " node=" << index << " role=" << GetNodeRole(index, stationCount)
+                          << " nSEND=" << flowCounts.nSend
                           << " nTX=" << flowCounts.nTx << " nCS=" << flowCounts.nCs
                           << " ntotal=" << flowCounts.nTotal
                           << " FBRS=" << flowCounts.fairBandwidthRatio
                           << " RBRS=" << sample.realBandwidthRatio
+                          << " raw_active_s=" << sample.rawActiveTime.GetSeconds()
+                          << " smoothed_active_s=" << sample.smoothedActiveTime.GetSeconds()
+                          << " packets=" << packetCount
+                          << " data=" << sample.tcpDataPackets
+                          << " tcp_ack=" << sample.tcpAckPackets
+                          << " average_cw=" << sample.averageContentionWindow
                           << " validation=" << (valid ? "PASS" : "FAIL") << "\n";
             };
             auto estimator = std::make_unique<CatraActiveTimeEstimator>(
