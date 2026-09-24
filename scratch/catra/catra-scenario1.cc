@@ -24,6 +24,7 @@
 #include "ns3/wifi-module.h"
 
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -68,6 +69,28 @@ struct StationFlowCounts
     uint32_t nTotal{};
     double fairBandwidthRatio{};
 };
+
+/** Count Flow 2 TCP data packets forwarded by one concrete IPv4 relay. */
+void
+ObserveFlow2Forward(std::vector<uint64_t>* forwardedByNode,
+                    uint32_t nodeIndex,
+                    const Ipv4Header& header,
+                    Ptr<const Packet> packet,
+                    uint32_t)
+{
+    if (header.GetProtocol() != 6)
+    {
+        return;
+    }
+    Ptr<Packet> tcpPayload = packet->Copy();
+    TcpHeader tcp;
+    if (tcpPayload->RemoveHeader(tcp) == 0 || tcp.GetDestinationPort() != FLOW2_PORT ||
+        tcpPayload->GetSize() == 0)
+    {
+        return;
+    }
+    ++forwardedByNode->at(nodeIndex);
+}
 
 /** Derive the paper's per-station flow counts from Scenario 1's fixed routes. */
 std::vector<StationFlowCounts>
@@ -329,7 +352,8 @@ WriteBaselineMetrics(const BaselineApplications& applications,
                      uint64_t run,
                      double trafficStartS,
                      double simulationTimeS,
-                     const std::string& csvPath)
+                     const std::string& csvPath,
+                     const std::vector<uint64_t>& flow2ForwardedByNode)
 {
     NS_ABORT_MSG_IF(!applications.flow1Sink || !applications.flow2Sink,
                     "Baseline PacketSink lookup failed");
@@ -342,12 +366,24 @@ WriteBaselineMetrics(const BaselineApplications& applications,
     const double paperTotalApproxMbps = flow1Mbps + (stationCount - 1) * flow2Mbps;
     const double squaredSum = flow1Mbps * flow1Mbps + flow2Mbps * flow2Mbps;
     const double jain = squaredSum > 0.0 ? totalE2eMbps * totalE2eMbps / (2.0 * squaredSum) : 0.0;
+    uint64_t flow2ForwardedPackets = 0;
+    std::ostringstream flow2Path;
+    flow2Path << "S2(n0)";
+    for (uint32_t relay = 1; relay + 1 < stationCount; ++relay)
+    {
+        flow2ForwardedPackets += flow2ForwardedByNode.at(relay);
+        flow2Path << '>' << GetNodeRole(relay, stationCount) << "(n" << relay << ')';
+    }
+    flow2Path << ">R(n" << stationCount - 1 << ')';
 
     std::cout << std::fixed << std::setprecision(6)
               << "[BASELINE] flow=Flow1 path=S1->R hops=1 rx_bytes=" << flow1Bytes
               << " goodput_mbps=" << flow1Mbps << "\n"
               << "[BASELINE] flow=Flow2 path=S2->R hops=" << stationCount - 1
               << " rx_bytes=" << flow2Bytes << " goodput_mbps=" << flow2Mbps << "\n"
+              << "[BASELINE] flow=Flow2 runtime_path=" << flow2Path.str()
+              << " relay_nodes=" << stationCount - 2
+              << " forwarded_tcp_data_packets=" << flow2ForwardedPackets << "\n"
               << "[BASELINE] total_e2e_mbps=" << totalE2eMbps
               << " paper_total_approx_mbps=" << paperTotalApproxMbps
               << " jain=" << jain << " active_s=" << activeS << "\n";
@@ -364,12 +400,14 @@ WriteBaselineMetrics(const BaselineApplications& applications,
     if (writeHeader)
     {
         csv << "mode,n,seed,run,tcp,active_s,flow1_mbps,flow2_mbps,total_e2e_mbps,"
-               "paper_total_approx_mbps,jain,flow1_rx_bytes,flow2_rx_bytes\n";
+               "paper_total_approx_mbps,jain,flow1_rx_bytes,flow2_rx_bytes,flow2_path,"
+               "flow2_relay_nodes,flow2_forwarded_tcp_data_packets\n";
     }
     csv << std::fixed << std::setprecision(6) << "baseline," << stationCount << ',' << seed << ','
         << run << ",TcpTahoe," << activeS << ',' << flow1Mbps << ',' << flow2Mbps << ','
         << totalE2eMbps << ',' << paperTotalApproxMbps << ',' << jain << ',' << flow1Bytes << ','
-        << flow2Bytes << '\n';
+        << flow2Bytes << ',' << flow2Path.str() << ',' << stationCount - 2 << ','
+        << flow2ForwardedPackets << '\n';
     std::cout << "baseline_csv=" << csvPath << "\n";
     std::cout << std::defaultfloat << std::setprecision(6);
     return flow1Bytes > 0 && flow2Bytes > 0;
@@ -444,7 +482,8 @@ ValidateRouteProbe(Ptr<FlowMonitor> monitor,
 bool
 ValidateBaselineFlows(Ptr<FlowMonitor> monitor,
                       Ptr<Ipv4FlowClassifier> classifier,
-                      uint32_t stationCount)
+                      uint32_t stationCount,
+                      const std::vector<uint64_t>& flow2ForwardedByNode)
 {
     struct ExpectedFlow
     {
@@ -481,6 +520,7 @@ ValidateBaselineFlows(Ptr<FlowMonitor> monitor,
                       << " src=" << tuple.sourceAddress << " dst=" << tuple.destinationAddress
                       << " tx_packets=" << stats.txPackets << " rx_packets=" << stats.rxPackets
                       << " lost_packets=" << stats.lostPackets
+                      << " times_forwarded=" << stats.timesForwarded
                       << " observed_hops=" << observedHops
                       << " expected_hops=" << flow.expectedHops
                       << " delivery=" << (delivered ? "PASS" : "FAIL")
@@ -488,6 +528,24 @@ ValidateBaselineFlows(Ptr<FlowMonitor> monitor,
             passed = passed && delivered && hopsPassed;
         }
     }
+    uint64_t observedRelayForwards = 0;
+    std::ostringstream path;
+    path << "S2(n0)";
+    for (uint32_t relay = 1; relay + 1 < stationCount; ++relay)
+    {
+        observedRelayForwards += flow2ForwardedByNode.at(relay);
+        path << "->" << GetNodeRole(relay, stationCount) << "(n" << relay << ')';
+        const bool relayPassed = flow2ForwardedByNode.at(relay) > 0;
+        std::cout << "[BASELINE-FORWARD] flow=Flow2 relay_node=" << relay
+                  << " role=" << GetNodeRole(relay, stationCount)
+                  << " forwarded_tcp_data_packets=" << flow2ForwardedByNode.at(relay)
+                  << " result=" << (relayPassed ? "PASS" : "FAIL") << "\n";
+        passed = passed && relayPassed;
+    }
+    path << "->R(n" << stationCount - 1 << ')';
+    std::cout << "[BASELINE-PATH] flow=Flow2 path=" << path.str()
+              << " relay_nodes=" << stationCount - 2
+              << " observed_relay_forwards=" << observedRelayForwards << "\n";
     for (const auto& flow : expected)
     {
         if (!flow.found)
@@ -747,7 +805,8 @@ main(int argc, char* argv[])
             output << "time,node,role,nSEND,nTX,nCS,ntotal,FBRS,raw_active_s,"
                       "smoothed_active_s,RBRS,packet_count,data_count,tcp_ack_count,"
                       "average_cw,expected_backoff_s,rts_s,cts_s,tcp_frame_s,mac_ack_s,"
-                      "interframe_s\n";
+                      "interframe_s,current_cw_ns3,current_cw_slots,RBRS_over_FBRS,"
+                      "cw_prime_raw_slots,cw_prime_slots,cw_prime_ns3,decision\n";
         }
         for (uint32_t index = 0; index < devices.GetN(); ++index)
         {
@@ -756,11 +815,28 @@ main(int argc, char* argv[])
         }
         for (uint32_t index = 0; index < devices.GetN(); ++index)
         {
-            auto report = [&, index, counts](const CatraActiveTimeSample& sample) {
+            Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
+            auto report = [&, index, counts, localDevice](const CatraActiveTimeSample& sample) {
                 const auto& flowCounts = counts.at(index);
                 const uint64_t packetCount = sample.tcpDataPackets + sample.tcpAckPackets;
                 const bool valid = std::isfinite(sample.realBandwidthRatio) &&
                                    sample.realBandwidthRatio >= 0.0 && flowCounts.nTotal > 0;
+                const uint32_t currentCwNs3 = localDevice->GetMac()->GetTxop()->GetCw(0);
+                const uint32_t currentCwSlots = currentCwNs3 + 1;
+                double ratio = 0.0;
+                double rawCwPrimeSlots = 0.0;
+                uint32_t cwPrimeSlots = currentCwSlots;
+                std::string decision{"NO_SEND_FLOW"};
+                if (flowCounts.fairBandwidthRatio > 0.0)
+                {
+                    ratio = sample.realBandwidthRatio / flowCounts.fairBandwidthRatio;
+                    rawCwPrimeSlots = std::min(ratio * currentCwSlots, 1024.0);
+                    cwPrimeSlots = std::max<uint32_t>(1, std::llround(rawCwPrimeSlots));
+                    decision = cwPrimeSlots < currentCwSlots   ? "DECREASE_CW"
+                               : cwPrimeSlots > currentCwSlots ? "INCREASE_CW"
+                                                              : "KEEP_CW";
+                }
+                const uint32_t cwPrimeNs3 = cwPrimeSlots - 1;
                 measurementPassed = measurementPassed && valid;
                 std::ofstream output(stationCsvPath, std::ios::app);
                 output << std::fixed << std::setprecision(6) << sample.periodEnd.GetSeconds() << ','
@@ -776,7 +852,9 @@ main(int argc, char* argv[])
                        << sample.rtsTime.GetSeconds() << ',' << sample.ctsTime.GetSeconds() << ','
                        << sample.tcpFrameTime.GetSeconds() << ','
                        << sample.macAckTime.GetSeconds() << ','
-                       << sample.interframeTime.GetSeconds() << '\n';
+                       << sample.interframeTime.GetSeconds() << ',' << currentCwNs3 << ','
+                       << currentCwSlots << ',' << ratio << ',' << rawCwPrimeSlots << ','
+                       << cwPrimeSlots << ',' << cwPrimeNs3 << ',' << decision << '\n';
                 std::cout << "[CATRA-STATION] time_s=" << sample.periodEnd.GetSeconds()
                           << " node=" << index << " role=" << GetNodeRole(index, stationCount)
                           << " nSEND=" << flowCounts.nSend
@@ -790,12 +868,18 @@ main(int argc, char* argv[])
                           << " data=" << sample.tcpDataPackets
                           << " tcp_ack=" << sample.tcpAckPackets
                           << " average_cw=" << sample.averageContentionWindow
+                          << " current_cw_ns3=" << currentCwNs3
+                          << " current_cw_slots=" << currentCwSlots
+                          << " ratio_RBRS_FBRS=" << ratio
+                          << " cw_prime_raw_slots=" << rawCwPrimeSlots
+                          << " cw_prime_slots=" << cwPrimeSlots
+                          << " cw_prime_ns3=" << cwPrimeNs3
+                          << " decision=" << decision
                           << " validation=" << (valid ? "PASS" : "FAIL") << "\n";
             };
             auto estimator = std::make_unique<CatraActiveTimeEstimator>(
                 index, Seconds(estimationPeriodS), 0.8, report);
             auto tracker = std::make_unique<CatraMacTransactionTracker>();
-            Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
             const bool rxConnected = localDevice->GetPhy()->TraceConnectWithoutContext(
                 "MonitorSnifferRx",
                 MakeBoundCallback(&ObserveMacFrameRx,
@@ -874,6 +958,7 @@ main(int argc, char* argv[])
     FlowMonitorHelper flowMonitorHelper;
     Ptr<FlowMonitor> flowMonitor;
     Ptr<Ipv4FlowClassifier> flowClassifier;
+    std::vector<uint64_t> flow2ForwardedByNode(stationCount, 0);
     BaselineApplications baselineApplications;
     if (routeProbeEnabled)
     {
@@ -895,6 +980,14 @@ main(int argc, char* argv[])
             nodes, interfaces, trafficStartS, simulationTimeS);
         flowMonitor = flowMonitorHelper.InstallAll();
         flowClassifier = DynamicCast<Ipv4FlowClassifier>(flowMonitorHelper.GetClassifier());
+        for (uint32_t index = 0; index < stationCount; ++index)
+        {
+            Ptr<Ipv4L3Protocol> ipv4 = nodes.Get(index)->GetObject<Ipv4L3Protocol>();
+            const bool connected = ipv4->TraceConnectWithoutContext(
+                "UnicastForward",
+                MakeBoundCallback(&ObserveFlow2Forward, &flow2ForwardedByNode, index));
+            NS_ABORT_MSG_IF(!connected, "Failed to connect IPv4 UnicastForward trace");
+        }
         Simulator::Stop(Seconds(simulationTimeS));
     }
 
@@ -934,8 +1027,10 @@ main(int argc, char* argv[])
                               run,
                               trafficStartS,
                               simulationTimeS,
-                              csvPath) &&
-         ValidateBaselineFlows(flowMonitor, flowClassifier, stationCount));
+                              csvPath,
+                              flow2ForwardedByNode) &&
+         ValidateBaselineFlows(
+             flowMonitor, flowClassifier, stationCount, flow2ForwardedByNode));
     if (measurementEnabled)
     {
         bool observed = false;

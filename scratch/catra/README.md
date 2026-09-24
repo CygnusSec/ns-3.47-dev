@@ -234,7 +234,23 @@ scripts/catra/run-algorithm1-scenario1.sh
 `STATIONS`, `SIM_TIME`, `EP`, `RUN`, and `OUTPUT_DIR` may be overridden;
 `STATIONS="3 4 5 6"` runs the complete Scenario 1 station-count matrix. The
 station CSV includes `RBRs`, raw/smoothed active time, packet composition,
-average observed CW, and every transaction-time component for each EP.
+average observed CW, and every transaction-time component for each EP. It also
+prints the read-only CATRA CW candidate:
+
+```text
+ratio = RBRs / FBRs
+CW'_raw = min(ratio * current_CW, CWmax)
+CW'_slots = round(CW'_raw)
+CW'_ns3 = CW'_slots - 1
+```
+
+`current_CW` and `CW'` above are window cardinalities in slots; the `_ns3`
+columns are inclusive upper bounds used by ns-3. `decision` is
+`DECREASE_CW`, `INCREASE_CW`, `KEEP_CW`, or `NO_SEND_FLOW`. In
+`measure-only` mode this is a transparent preview: it does not write `CW'`
+back to `Txop` or alter baseline behavior. The paper does not specify integer
+rounding, so the CSV retains both the raw value and the explicit nearest-slot
+porting choice.
 
 ### Algorithm 2 decision implementation
 
@@ -426,8 +442,14 @@ Every CSV row must contain:
 ```text
 mode,n,seed,run,tcp,active_s,
 flow1_mbps,flow2_mbps,total_e2e_mbps,paper_total_approx_mbps,jain,
-flow1_rx_bytes,flow2_rx_bytes
+flow1_rx_bytes,flow2_rx_bytes,flow2_path,flow2_relay_nodes,
+flow2_forwarded_tcp_data_packets
 ```
+
+The Flow 2 forwarding columns are runtime evidence from the IPv4
+`UnicastForward` trace, not a path inferred only from node positions. The log
+also emits one `[BASELINE-FORWARD]` record per relay and a complete
+`[BASELINE-PATH]` record.
 
 Run metadata must additionally print the resolved PHY thresholds, transmit
 power, antenna height, queue size/lifetime, TCP segment size, TCP buffers,
