@@ -2,8 +2,8 @@
 
 This ns-3 module contains CATRA logic that is independent of a concrete
 scenario. A scenario opts in by linking `${libcatra}` and creating the required
-measurement/controller objects. Scenario 1 TCP phases always create Algorithm
-1 measurement and apply CATRA MAC control.
+measurement/controller objects. Scenario 1 itself remains available as a TCP
+Tahoe baseline when this module is disabled.
 
 ## Ownership
 
@@ -18,18 +18,19 @@ remain under `scratch/catra/scenario1`.
 
 ## Current integration boundary
 
-- Algorithm 1 measurement is mandatory in Scenario 1 TCP phases because it
-  supplies the RBR input for CATRA CW control.
-- In Scenario 1 TCP phases, the enabled CATRA module applies `CW'` as the
-  adaptive `Txop` CWmin while retaining the standard CWmax, so native DCF/BEB
-  remains active.
+- With the CATRA module enabled, Scenario 1 TCP phases run Algorithm 1 because
+  it supplies the RBR input for CATRA CW control, then apply `CW'` as adaptive
+  `Txop` CWmin while retaining the standard CWmax so native DCF/BEB remains
+  active.
+- With the CATRA module disabled, the same Scenario 1 target runs its TCP Tahoe
+  flows without Algorithm 1 measurement and without changing CWmin.
 - The TCP controller implements and validates Algorithm 2 decisions; it is not
   yet connected to a live ns-3 TCP socket/recovery path.
 - CATRA availability is a configure-time ns-3 module decision, not a runtime
   `--catra` switch.
 
-There is no runtime flag that turns this module-backed Scenario 1 into a plain
-non-CATRA baseline.
+There is no runtime `--catra` flag. Enabling or disabling CATRA is an ns-3
+configure-time module choice.
 
 ## Enable or disable the ns-3 module
 
@@ -44,16 +45,28 @@ Disable CATRA with:
 
 ```bash
 ./ns3 configure --enable-modules= --disable-modules=catra
+./ns3 build catra-scenario1
 ```
 
 Both commands explicitly clear the opposite cached module list. This matters
 when switching an existing CMake build directory between enabled and disabled
 states.
 
-The CATRA scratch CMake file registers no probes or Scenario 1 executable when
-the `catra` target is absent. Consequently `./ns3 build catra-scenario1` and
-`./ns3 run catra-scenario1` are unavailable in that build configuration. This
-is enforced by target registration rather than by a runtime branch.
+The `catra-scenario1` executable is registered in both configurations. Without
+the module it reports `catra_module=disabled`, runs the baseline TCP traffic,
+and still produces throughput, CW/backoff and per-hop MAC output; it does not
+create the CATRA station-state CSV. With the module it reports
+`catra_module=enabled` and automatically adds Algorithm 1 plus CW control.
+The module-only `catra-active-time-probe` and `catra-tcp-controller-probe`
+targets are not registered while CATRA is disabled.
+
+The same runner works in either configuration:
+
+```bash
+TRAFFIC_PROFILE=paper SIM_TIME=300 MAC_HOP_INTERVAL=1 \
+ADJACENT_DISTANCE_SETS="100,200" \
+./scripts/catra/run-algorithm1-scenario1.sh
+```
 
 Scenario 1 uses `--trafficProfile=paper` for the paper's two TCP flows. The
 separate `--trafficProfile=tcp-stress` profile adds a saturated CatraTcpTahoe

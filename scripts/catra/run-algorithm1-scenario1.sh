@@ -25,7 +25,9 @@ MAC_HOP_INTERVAL="${MAC_HOP_INTERVAL:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-results/catra/scenario1/algorithm1}"
 mkdir -p "${OUTPUT_DIR}"
 
-FILE_PREFIX="catra-${TRAFFIC_PROFILE}-"
+# The same runner is valid with the ns-3 CATRA module enabled or disabled.
+# Runtime CSV provenance records whether CATRA control was compiled in.
+FILE_PREFIX="scenario1-${TRAFFIC_PROFILE}-"
 
 ./ns3 build catra-scenario1 -j 2
 for STATION_COUNT in ${STATIONS}; do
@@ -41,14 +43,14 @@ for STATION_COUNT in ${STATIONS}; do
       "catra-scenario1 --mode=${MODE} --trafficProfile=${TRAFFIC_PROFILE} --n=${STATION_COUNT} --distances=${DISTANCE_SET} --simTime=${SIM_TIME} --ep=${EP} --run=${RUN} --traceCw=${TRACE_CW} --verboseCw=${VERBOSE_CW} --measureMacHops=${MEASURE_MAC_HOPS} --macHopInterval=${MAC_HOP_INTERVAL} --strict=true --printTopology=false --csv=${THROUGHPUT_CSV} --stationCsv=${STATION_CSV} --cwTraceCsv=${CW_TRACE_CSV} --macHopCsv=${MAC_HOP_CSV}" \
       --no-build
 
-    echo "algorithm1_catra_module=enabled"
-    echo "algorithm1_mode=${MODE}"
-    echo "algorithm1_adjacent_distances_m=${DISTANCE_SET}"
-    echo "algorithm1_traffic_profile=${TRAFFIC_PROFILE}"
-    echo "algorithm1_station_csv=${STATION_CSV}"
-    echo "algorithm1_throughput_csv=${THROUGHPUT_CSV}"
-    echo "algorithm1_cw_trace_csv=${CW_TRACE_CSV}"
-    echo "algorithm1_mac_hop_interval_s=${MAC_HOP_INTERVAL}"
-    echo "algorithm1_mac_hop_csv=${MAC_HOP_CSV}"
+    echo "scenario1_catra_selection=ns3-configure-time"
+    echo "scenario1_mode=${MODE}"
+    echo "scenario1_adjacent_distances_m=${DISTANCE_SET}"
+    echo "scenario1_traffic_profile=${TRAFFIC_PROFILE}"
+    echo "scenario1_station_csv=${STATION_CSV}"
+    echo "scenario1_throughput_csv=${THROUGHPUT_CSV}"
+    echo "scenario1_cw_trace_csv=${CW_TRACE_CSV}"
+    echo "scenario1_mac_hop_interval_s=${MAC_HOP_INTERVAL}"
+    echo "scenario1_mac_hop_csv=${MAC_HOP_CSV}"
   done
 done

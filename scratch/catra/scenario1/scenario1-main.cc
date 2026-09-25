@@ -16,10 +16,12 @@
 #include "catra/scenario1-contention.h"
 
 #include "ns3/applications-module.h"
+#ifdef NS3_CATRA_MODULE_ENABLED
 #include "ns3/catra-active-time-estimator.h"
 #include "ns3/catra-mac-controller.h"
 #include "ns3/catra-mac-transaction-tracker.h"
 #include "ns3/observe-mac-frame.h"
+#endif
 #include "ns3/core-module.h"
 #include "ns3/flow-monitor-module.h"
 #include "ns3/internet-module.h"
@@ -515,13 +517,15 @@ main(int argc, char* argv[])
     const bool routeProbeEnabled = mode == "route-probe";
     const bool baselineEnabled = mode == "baseline" || mode == "measure-only";
     const bool routesEnabled = routeProbeEnabled || baselineEnabled;
-    // This executable exists only when the contributed ns-3 CATRA module is
-    // enabled. Every real-TCP phase therefore applies Eq. (5) as adaptive CWmin;
-    // there is no second runtime CATRA feature flag.
-    const bool catraControlEnabled = baselineEnabled;
-    // Algorithm 1 is the mandatory input to CATRA CW control. Both are active
-    // together in every real-TCP phase of this module-backed executable.
-    const bool measurementEnabled = baselineEnabled;
+#ifdef NS3_CATRA_MODULE_ENABLED
+    constexpr bool catraModuleEnabled = true;
+#else
+    constexpr bool catraModuleEnabled = false;
+#endif
+    // CATRA availability is selected once, at ns-3 configure time. Scenario 1
+    // remains a runnable TCP Tahoe baseline when the module is absent.
+    const bool catraControlEnabled = catraModuleEnabled && baselineEnabled;
+    const bool measurementEnabled = catraControlEnabled;
     NS_ABORT_MSG_IF(trafficProfile == "tcp-stress" && !baselineEnabled,
                     "trafficProfile=tcp-stress requires baseline or measure-only mode");
     const bool tcpStressEnabled = trafficProfile == "tcp-stress";
@@ -534,7 +538,7 @@ main(int argc, char* argv[])
                                                        : "topology-only")
               << " traffic_profile=" << trafficProfile
               << " channel_access_measurement=" << (measurementEnabled ? "on" : "off")
-              << " catra_module=enabled"
+              << " catra_module=" << (catraModuleEnabled ? "enabled" : "disabled")
               << " catra_control=" << (catraControlEnabled ? "on" : "off")
               << "\n"
               << "stations=" << stationCount << " adjacent_distances_m=";
@@ -709,10 +713,11 @@ main(int argc, char* argv[])
                   << " interval_s=" << macHopIntervalS << " csv=" << macHopCsvPath << "\n";
     }
 
+    bool measurementPassed = true;
+#ifdef NS3_CATRA_MODULE_ENABLED
     std::vector<std::unique_ptr<CatraActiveTimeEstimator>> estimators;
     std::vector<std::unique_ptr<CatraMacTransactionTracker>> trackers;
     std::map<Mac48Address, Ptr<WifiNetDevice>> devicesByAddress;
-    bool measurementPassed = true;
     if (measurementEnabled)
     {
         const auto transmissions = BuildScenario1Transmissions(stationCount, tcpStressEnabled);
@@ -877,6 +882,7 @@ main(int argc, char* argv[])
             trackers.push_back(std::move(tracker));
         }
     }
+#endif
 
     if (verboseDetails)
     {
@@ -1061,6 +1067,7 @@ main(int argc, char* argv[])
              stationCount,
              tcpStressEnabled,
              flow2ForwardedByNode));
+#ifdef NS3_CATRA_MODULE_ENABLED
     if (measurementEnabled)
     {
         bool observed = false;
@@ -1073,6 +1080,7 @@ main(int argc, char* argv[])
         std::cout << "catra_measurement_overall="
                   << (measurementPassed ? "PASS" : "FAIL") << "\n";
     }
+#endif
     const bool overallPassed =
         topologyPassed && routeProbePassed && baselinePassed && measurementPassed;
     std::cout << "scenario_overall="
