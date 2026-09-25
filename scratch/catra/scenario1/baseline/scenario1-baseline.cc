@@ -106,6 +106,40 @@ ObserveScenario1Flow2Forward(std::vector<uint64_t>* forwardedByNode,
     ++forwardedByNode->at(nodeIndex);
 }
 
+void
+ObserveScenario1HopRx(std::vector<uint64_t>* flow1RxBytesByNode,
+                     std::vector<uint64_t>* flow2RxBytesByNode,
+                     uint32_t nodeIndex,
+                     Ptr<const Packet> packet,
+                     Ptr<Ipv4>,
+                     uint32_t)
+{
+    Ptr<Packet> copy = packet->Copy();
+    Ipv4Header ipv4;
+    if (copy->RemoveHeader(ipv4) == 0 || ipv4.GetProtocol() != 6)
+    {
+        return;
+    }
+    TcpHeader tcp;
+    if (copy->RemoveHeader(tcp) == 0)
+    {
+        return;
+    }
+    const uint32_t payloadBytes = copy->GetSize();
+    if (payloadBytes == 0)
+    {
+        return; // pure TCP-ACK carries no forward-direction data
+    }
+    if (tcp.GetDestinationPort() == FLOW1_PORT)
+    {
+        flow1RxBytesByNode->at(nodeIndex) += payloadBytes;
+    }
+    else if (tcp.GetDestinationPort() == FLOW2_PORT)
+    {
+        flow2RxBytesByNode->at(nodeIndex) += payloadBytes;
+    }
+}
+
 bool
 WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
                               uint32_t stationCount,
@@ -114,7 +148,9 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
                               double trafficStartS,
                               double simulationTimeS,
                               const std::string& csvPath,
-                              const std::vector<uint64_t>& flow2ForwardedByNode)
+                              const std::vector<uint64_t>& flow2ForwardedByNode,
+                              const std::vector<uint64_t>& flow1RxBytesByNode,
+                              const std::vector<uint64_t>& flow2RxBytesByNode)
 {
     NS_ABORT_MSG_IF(!applications.flow1Sink || !applications.flow2Sink,
                     "Baseline PacketSink lookup failed");
@@ -137,6 +173,27 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
     }
     flow2Path << ">R(n" << stationCount - 1 << ')';
 
+    // Per-hop throughput. Bytes of a flow received at node j crossed the hop
+    // (j-1)->j, so hop bandwidth = bytes received at the downstream node / active
+    // time. Flow2 (long) traverses every hop n0->n1->...->R; Flow1 (short)
+    // occupies only the final hop n(n-2)->R. This is link-level throughput and
+    // includes retransmitted TCP-DATA, so it can exceed the end-to-end goodput
+    // measured at the sink (which counts unique bytes only).
+    const uint32_t receiverIndex = stationCount - 1;
+    const uint32_t s1Index = stationCount - 2;
+    std::ostringstream flow2HopBandwidth;
+    std::ostringstream flow1HopBandwidth;
+    for (uint32_t hop = 0; hop < stationCount - 1; ++hop)
+    {
+        const uint32_t downstream = hop + 1; // node that received the hop's data
+        const double hopMbps = flow2RxBytesByNode.at(downstream) * 8.0 / activeS / 1e6;
+        flow2HopBandwidth << (hop == 0 ? "" : ";") << 'n' << hop << "-n" << downstream << ':'
+                          << std::fixed << std::setprecision(6) << hopMbps;
+    }
+    const double flow1HopMbps = flow1RxBytesByNode.at(receiverIndex) * 8.0 / activeS / 1e6;
+    flow1HopBandwidth << 'n' << s1Index << "-n" << receiverIndex << ':' << std::fixed
+                      << std::setprecision(6) << flow1HopMbps;
+
     std::cout << std::fixed << std::setprecision(6)
               << "[BASELINE] flow=Flow1 path=S1->R hops=1 rx_bytes=" << flow1Bytes
               << " goodput_mbps=" << flow1Mbps << "\n"
@@ -147,7 +204,11 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
               << " forwarded_tcp_data_packets=" << flow2ForwardedPackets << "\n"
               << "[BASELINE] total_e2e_mbps=" << totalE2eMbps
               << " paper_total_approx_mbps=" << paperTotalApproxMbps
-              << " jain=" << jain << " active_s=" << activeS << "\n";
+              << " jain=" << jain << " active_s=" << activeS << "\n"
+              << "[BASELINE-HOP-BW] flow=Flow2 hop_bandwidth_mbps=" << flow2HopBandwidth.str()
+              << "\n"
+              << "[BASELINE-HOP-BW] flow=Flow1 hop_bandwidth_mbps=" << flow1HopBandwidth.str()
+              << "\n";
 
     const std::filesystem::path outputPath(csvPath);
     if (!outputPath.parent_path().empty())
@@ -162,13 +223,15 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
     {
         csv << "mode,n,seed,run,tcp,active_s,flow1_mbps,flow2_mbps,total_e2e_mbps,"
                "paper_total_approx_mbps,jain,flow1_rx_bytes,flow2_rx_bytes,flow2_path,"
-               "flow2_relay_nodes,flow2_forwarded_tcp_data_packets\n";
+               "flow2_relay_nodes,flow2_forwarded_tcp_data_packets,"
+               "flow2_hop_bandwidth_mbps,flow1_hop_bandwidth_mbps\n";
     }
     csv << std::fixed << std::setprecision(6) << "baseline," << stationCount << ',' << seed << ','
         << run << ",TcpTahoe," << activeS << ',' << flow1Mbps << ',' << flow2Mbps << ','
         << totalE2eMbps << ',' << paperTotalApproxMbps << ',' << jain << ',' << flow1Bytes << ','
         << flow2Bytes << ',' << flow2Path.str() << ',' << stationCount - 2 << ','
-        << flow2ForwardedPackets << '\n';
+        << flow2ForwardedPackets << ',' << flow2HopBandwidth.str() << ','
+        << flow1HopBandwidth.str() << '\n';
     std::cout << "baseline_csv=" << csvPath << "\n";
     std::cout << std::defaultfloat << std::setprecision(6);
     return flow1Bytes > 0 && flow2Bytes > 0;

@@ -37,6 +37,20 @@ void ObserveScenario1Flow2Forward(std::vector<uint64_t>* forwardedByNode,
                                  Ptr<const Packet> packet,
                                  uint32_t interface);
 
+/**
+ * Count TCP-DATA payload bytes of each flow received at a node's IP layer.
+ *
+ * A packet observed at node j has successfully traversed the wireless hop from
+ * node j-1 to node j, so accumulating received bytes per node yields per-hop
+ * throughput once divided by the active duration.
+ */
+void ObserveScenario1HopRx(std::vector<uint64_t>* flow1RxBytesByNode,
+                           std::vector<uint64_t>* flow2RxBytesByNode,
+                           uint32_t nodeIndex,
+                           Ptr<const Packet> packet,
+                           Ptr<Ipv4> ipv4,
+                           uint32_t interface);
+
 bool WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
                                    uint32_t stationCount,
                                    uint32_t seed,
@@ -44,7 +58,9 @@ bool WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applicat
                                    double trafficStartS,
                                    double simulationTimeS,
                                    const std::string& csvPath,
-                                   const std::vector<uint64_t>& flow2ForwardedByNode);
+                                   const std::vector<uint64_t>& flow2ForwardedByNode,
+                                   const std::vector<uint64_t>& flow1RxBytesByNode,
+                                   const std::vector<uint64_t>& flow2RxBytesByNode);
 
 bool ValidateScenario1Baseline(Ptr<FlowMonitor> monitor,
                                Ptr<Ipv4FlowClassifier> classifier,

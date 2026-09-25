@@ -913,6 +913,10 @@ main(int argc, char* argv[])
     Ptr<FlowMonitor> flowMonitor;
     Ptr<Ipv4FlowClassifier> flowClassifier;
     std::vector<uint64_t> flow2ForwardedByNode(stationCount, 0);
+    // Per-node received TCP-DATA bytes for each flow, used to derive per-hop
+    // throughput (bytes received at node j == throughput of hop j-1 -> j).
+    std::vector<uint64_t> flow1RxBytesByNode(stationCount, 0);
+    std::vector<uint64_t> flow2RxBytesByNode(stationCount, 0);
     Scenario1BaselineApplications baselineApplications;
     ApplicationContainer contentionApplications;
     if (routeProbeEnabled)
@@ -952,6 +956,16 @@ main(int argc, char* argv[])
                 "UnicastForward",
                 MakeBoundCallback(&ObserveScenario1Flow2Forward, &flow2ForwardedByNode, index));
             NS_ABORT_MSG_IF(!connected, "Failed to connect IPv4 UnicastForward trace");
+            // "Rx" fires for every IP packet delivered up at this node, including
+            // packets that will be forwarded. Counting TCP-DATA bytes per node
+            // gives the throughput that crossed the hop into this node.
+            const bool rxConnected = ipv4->TraceConnectWithoutContext(
+                "Rx",
+                MakeBoundCallback(&ObserveScenario1HopRx,
+                                  &flow1RxBytesByNode,
+                                  &flow2RxBytesByNode,
+                                  index));
+            NS_ABORT_MSG_IF(!rxConnected, "Failed to connect IPv4 Rx trace");
         }
         Simulator::Stop(Seconds(simulationTimeS));
     }
@@ -999,7 +1013,9 @@ main(int argc, char* argv[])
                                        trafficStartS,
                                        simulationTimeS,
                                        csvPath,
-                                       flow2ForwardedByNode) &&
+                                       flow2ForwardedByNode,
+                                       flow1RxBytesByNode,
+                                       flow2RxBytesByNode) &&
          ValidateScenario1Baseline(
              flowMonitor, flowClassifier, stationCount, flow2ForwardedByNode));
     if (measurementEnabled)
