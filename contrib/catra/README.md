@@ -34,11 +34,26 @@ configure-time module choice.
 
 ## Enable or disable the ns-3 module
 
-Enable CATRA before building Scenario 1:
+Enable CATRA together with the normal ns-3 module set before building
+Scenario 1:
 
 ```bash
-./ns3 configure --enable-modules=catra --disable-modules=
+./ns3 configure --enable-modules= --disable-modules=
 ./ns3 build catra-scenario1
+```
+
+An empty `--enable-modules` list means that ns-3 does not apply an enable
+whitelist. CATRA is then built normally with the other modules. Do not use
+`--enable-modules=catra` for Scenario 1: in ns-3 this means "build only CATRA
+and its declared module dependencies", so scenario-only dependencies such as
+`applications`, `flow-monitor` and `debug-tools` are excluded.
+
+For an intentionally reduced build, list every Scenario 1 dependency:
+
+```bash
+./ns3 configure \
+  --enable-modules=catra,applications,debug-tools,flow-monitor,internet,mobility,network,propagation,wifi \
+  --disable-modules=
 ```
 
 Disable CATRA with:
@@ -48,9 +63,9 @@ Disable CATRA with:
 ./ns3 build catra-scenario1
 ```
 
-Both commands explicitly clear the opposite cached module list. This matters
-when switching an existing CMake build directory between enabled and disabled
-states.
+The enable and disable commands explicitly clear the opposite cached module
+list. This matters when switching an existing CMake build directory between
+enabled and disabled states.
 
 The `catra-scenario1` executable is registered in both configurations. Without
 the module it reports `catra_module=disabled`, runs the baseline TCP traffic,

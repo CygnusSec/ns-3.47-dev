@@ -13,7 +13,20 @@ build_exec(
 # Scenario 1 is also the non-CATRA TCP Tahoe baseline. Keep this target
 # available in both module configurations and add the shared CATRA dependency
 # only when the contributed module was enabled by ./ns3 configure.
-set(scenario1_libraries "${ns3-libs}" "${ns3-contrib-libs}")
+# Do not hide Scenario 1's dependencies behind the aggregate ns3-libs list.
+# This executable uses application helpers, FlowMonitor and debug-tools in
+# addition to CATRA's own core/network/internet/wifi dependencies.
+set(scenario1_libraries
+    ${libapplications}
+    ${libcore}
+    ${libdebug-tools}
+    ${libflow-monitor}
+    ${libinternet}
+    ${libmobility}
+    ${libnetwork}
+    ${libpropagation}
+    ${libwifi}
+)
 set(scenario1_definitions)
 if(TARGET catra)
   list(APPEND scenario1_libraries "${libcatra}")
