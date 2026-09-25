@@ -49,6 +49,7 @@ namespace
 
 constexpr uint32_t MIN_STATIONS = 3;
 constexpr uint32_t MAX_STATIONS = 6;
+constexpr double MAX_ADJACENT_DISTANCE_M = 250.0;
 constexpr double CHANNEL_FREQUENCY_HZ = 2.412e9;
 constexpr double POSITION_TOLERANCE_M = 1e-9;
 constexpr uint16_t LONG_FORWARD_PORT = 7001;
@@ -88,6 +89,42 @@ GetCalibratedRelationship(double distanceM)
         return "cca-only";
     }
     return "none";
+}
+
+/** Resolve one distance for every adjacent pair in the chain. */
+std::vector<double>
+ParseAdjacentDistances(const std::string& distanceList,
+                       uint32_t stationCount,
+                       double fallbackSpacingM)
+{
+    if (distanceList.empty())
+    {
+        return std::vector<double>(stationCount - 1, fallbackSpacingM);
+    }
+
+    std::vector<double> distances;
+    std::stringstream input(distanceList);
+    std::string value;
+    while (std::getline(input, value, ','))
+    {
+        NS_ABORT_MSG_IF(value.empty(), "distances contains an empty value");
+        try
+        {
+            std::size_t parsedCharacters = 0;
+            const double distance = std::stod(value, &parsedCharacters);
+            NS_ABORT_MSG_IF(parsedCharacters != value.size(),
+                            "Invalid distance value: " << value);
+            distances.push_back(distance);
+        }
+        catch (const std::exception&)
+        {
+            NS_ABORT_MSG("Invalid distance value: " << value);
+        }
+    }
+    NS_ABORT_MSG_IF(distances.size() != stationCount - 1,
+                    "distances requires exactly n-1 values; n="
+                        << stationCount << " requires " << stationCount - 1 << " values");
+    return distances;
 }
 
 /** Print node ownership, position, device address, and IPv4 address. */
@@ -307,7 +344,7 @@ bool
 ValidateTopology(const NodeContainer& nodes,
                  const NetDeviceContainer& devices,
                  const Ipv4InterfaceContainer& interfaces,
-                 double spacingM)
+                 const std::vector<double>& adjacentDistancesM)
 {
     bool passed = true;
 
@@ -325,11 +362,12 @@ ValidateTopology(const NodeContainer& nodes,
 
     bool positionsCorrect = true;
     bool adjacentSpacingCorrect = true;
+    double expectedX = 0.0;
     for (uint32_t index = 0; index < nodes.GetN(); ++index)
     {
         const Vector position = nodes.Get(index)->GetObject<MobilityModel>()->GetPosition();
         positionsCorrect = positionsCorrect &&
-                           std::abs(position.x - index * spacingM) <= POSITION_TOLERANCE_M &&
+                           std::abs(position.x - expectedX) <= POSITION_TOLERANCE_M &&
                            std::abs(position.y) <= POSITION_TOLERANCE_M &&
                            std::abs(position.z) <= POSITION_TOLERANCE_M;
 
@@ -338,22 +376,32 @@ ValidateTopology(const NodeContainer& nodes,
             const double distance = nodes.Get(index - 1)
                                         ->GetObject<MobilityModel>()
                                         ->GetDistanceFrom(nodes.Get(index)->GetObject<MobilityModel>());
-            adjacentSpacingCorrect =
-                adjacentSpacingCorrect && std::abs(distance - spacingM) <= POSITION_TOLERANCE_M;
+            adjacentSpacingCorrect = adjacentSpacingCorrect &&
+                                     std::abs(distance - adjacentDistancesM.at(index - 1)) <=
+                                         POSITION_TOLERANCE_M;
+        }
+        if (index < adjacentDistancesM.size())
+        {
+            expectedX += adjacentDistancesM.at(index);
         }
     }
     check("linear_positions", positionsCorrect);
-    check("adjacent_spacing", adjacentSpacingCorrect);
+    check("adjacent_distances", adjacentSpacingCorrect);
     const double shortFlowDistance = nodes.Get(nodes.GetN() - 2)
                                          ->GetObject<MobilityModel>()
                                          ->GetDistanceFrom(nodes.Get(nodes.GetN() - 1)
                                                               ->GetObject<MobilityModel>());
     const double longFlowDistance = nodes.Get(0)->GetObject<MobilityModel>()->GetDistanceFrom(
         nodes.Get(nodes.GetN() - 1)->GetObject<MobilityModel>());
-    check("short_flow_structural_hops",
-          std::abs(shortFlowDistance / spacingM - 1.0) <= POSITION_TOLERANCE_M);
-    check("long_flow_structural_hops",
-          std::abs(longFlowDistance / spacingM - (nodes.GetN() - 1)) <= POSITION_TOLERANCE_M);
+    double expectedLongFlowDistance = 0.0;
+    for (double distance : adjacentDistancesM)
+    {
+        expectedLongFlowDistance += distance;
+    }
+    check("short_flow_adjacent_distance",
+          std::abs(shortFlowDistance - adjacentDistancesM.back()) <= POSITION_TOLERANCE_M);
+    check("long_flow_chain_distance",
+          std::abs(longFlowDistance - expectedLongFlowDistance) <= POSITION_TOLERANCE_M);
     check("overall", passed);
     return passed;
 }
@@ -366,6 +414,7 @@ main(int argc, char* argv[])
     uint32_t stationCount{3};
     std::string mode{"topology"};
     double spacingM{200.0};
+    std::string distanceList;
     double txPowerDbm{16.0};
     double rxSensitivityDbm{-87.0};
     double ccaEdThresholdDbm{-87.0};
@@ -391,7 +440,10 @@ main(int argc, char* argv[])
     CommandLine cmd(__FILE__);
     cmd.AddValue("mode", "Scenario phase: topology, route-probe, baseline, or measure-only", mode);
     cmd.AddValue("n", "Number of stations in the Scenario 1 chain (3 through 6)", stationCount);
-    cmd.AddValue("spacing", "Distance between adjacent stations in meters", spacingM);
+    cmd.AddValue("spacing", "Legacy uniform distance between adjacent stations", spacingM);
+    cmd.AddValue("distances",
+                 "Comma-separated distance for each adjacent pair, for example 200,250",
+                 distanceList);
     cmd.AddValue("txPower", "Fixed transmit power in dBm", txPowerDbm);
     cmd.AddValue("rxSensitivity", "PHY receive sensitivity in dBm", rxSensitivityDbm);
     cmd.AddValue("ccaEdThreshold", "PHY energy-detection threshold in dBm", ccaEdThresholdDbm);
@@ -423,6 +475,19 @@ main(int argc, char* argv[])
                     "simTime must be greater than trafficStart");
     NS_ABORT_MSG_IF(estimationPeriodS <= 0.0, "ep must be positive");
 
+    const std::vector<double> adjacentDistancesM =
+        ParseAdjacentDistances(distanceList, stationCount, spacingM);
+    for (uint32_t index = 0; index < adjacentDistancesM.size(); ++index)
+    {
+        NS_ABORT_MSG_IF(!std::isfinite(adjacentDistancesM.at(index)) ||
+                            adjacentDistancesM.at(index) <= 0.0,
+                        "Adjacent distance must be positive: n" << index << "-n" << index + 1);
+        NS_ABORT_MSG_IF(adjacentDistancesM.at(index) > MAX_ADJACENT_DISTANCE_M,
+                        "Adjacent distance exceeds the calibrated 250 m transmission range: n"
+                            << index << "-n" << index + 1 << '=' << adjacentDistancesM.at(index)
+                            << " m");
+    }
+
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(run);
 
@@ -437,7 +502,12 @@ main(int argc, char* argv[])
                                  : baselineEnabled ? "original-tcp-baseline"
                                                    : "topology-only")
               << " catra=" << (measurementEnabled ? "measurement-only" : "disabled") << "\n"
-              << "stations=" << stationCount << " spacing_m=" << spacingM
+              << "stations=" << stationCount << " adjacent_distances_m=";
+    for (uint32_t index = 0; index < adjacentDistancesM.size(); ++index)
+    {
+        std::cout << (index == 0 ? "" : ",") << adjacentDistancesM.at(index);
+    }
+    std::cout
               << " s2_index=0 s1_index=" << stationCount - 2
               << " receiver_index=" << stationCount - 1 << "\n"
               << "expected_short_flow_hops=1 expected_long_flow_hops=" << stationCount - 1
@@ -470,15 +540,20 @@ main(int argc, char* argv[])
     // receiver R occupy the final two adjacent positions.
     MobilityHelper mobility;
     Ptr<ListPositionAllocator> positions = CreateObject<ListPositionAllocator>();
+    double positionX = 0.0;
     for (uint32_t index = 0; index < stationCount; ++index)
     {
-        const Vector position(index * spacingM, 0.0, 0.0);
+        const Vector position(positionX, 0.0, 0.0);
         positions->Add(position);
         if (verboseDetails)
         {
             std::cout << "[NODE-POSITION] index=" << index << " role="
                       << GetNodeRole(index, stationCount) << " x_m=" << position.x
                       << " y_m=" << position.y << " z_m=" << position.z << "\n";
+        }
+        if (index < adjacentDistancesM.size())
+        {
+            positionX += adjacentDistancesM.at(index);
         }
     }
     mobility.SetPositionAllocator(positions);
@@ -752,7 +827,8 @@ main(int argc, char* argv[])
     Simulator::Run();
 
     std::cout << "\n=== 8. Structural acceptance ===\n";
-    const bool topologyPassed = ValidateTopology(nodes, devices, interfaces, spacingM);
+    const bool topologyPassed =
+        ValidateTopology(nodes, devices, interfaces, adjacentDistancesM);
     const bool routeProbePassed =
         !routeProbeEnabled || ValidateRouteProbe(flowMonitor, flowClassifier, stationCount);
     const bool baselinePassed =
