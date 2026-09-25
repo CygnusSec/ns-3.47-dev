@@ -717,10 +717,18 @@ main(int argc, char* argv[])
             Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice>(devices.Get(index));
             devicesByAddress.emplace(Mac48Address::ConvertFrom(device->GetAddress()), device);
         }
+        // The console tag reflects what is actually happening. With CATRA control
+        // off this loop only *measures* channel access; the CW' decision is a
+        // preview that is not applied to the live Txop.
+        const std::string measurementTag =
+            catraControlEnabled ? "[CATRA-STATION]" : "[MAC-CHANNEL-ACCESS]";
+        const std::string decisionMode = catraControlEnabled ? "applied" : "preview-not-applied";
         for (uint32_t index = 0; index < devices.GetN(); ++index)
         {
             Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
-            auto report = [&, index, counts, localDevice](const CatraActiveTimeSample& sample) {
+            auto report =
+                [&, index, counts, localDevice, measurementTag, decisionMode](
+                    const CatraActiveTimeSample& sample) {
                 const auto& flowCounts = counts.at(index);
                 const uint64_t packetCount = sample.tcpDataPackets + sample.tcpAckPackets;
                 const bool valid = std::isfinite(sample.realBandwidthRatio) &&
@@ -751,7 +759,7 @@ main(int argc, char* argv[])
                        << currentCwSlots << ',' << macDecision.ratio << ','
                        << macDecision.rawWindowSlots << ',' << macDecision.windowSlots << ','
                        << macDecision.ns3Cw << ',' << ToString(macDecision.action) << '\n';
-                std::cout << "[CATRA-STATION] time_s=" << sample.periodEnd.GetSeconds()
+                std::cout << measurementTag << " time_s=" << sample.periodEnd.GetSeconds()
                           << " node=" << index << " role=" << GetNodeRole(index, stationCount)
                           << " nSEND=" << flowCounts.nSend
                           << " nTX=" << flowCounts.nTx << " nCS=" << flowCounts.nCs
@@ -771,6 +779,7 @@ main(int argc, char* argv[])
                           << " cw_prime_slots=" << macDecision.windowSlots
                           << " cw_prime_ns3=" << macDecision.ns3Cw
                           << " decision=" << ToString(macDecision.action)
+                          << " decision_mode=" << decisionMode
                           << " validation=" << (valid ? "PASS" : "FAIL") << "\n";
             };
             auto estimator = std::make_unique<CatraActiveTimeEstimator>(

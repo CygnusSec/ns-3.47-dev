@@ -31,13 +31,22 @@ VERBOSE_CW="${VERBOSE_CW:-false}"
 OUTPUT_DIR="${OUTPUT_DIR:-results/catra/scenario1/algorithm1}"
 mkdir -p "${OUTPUT_DIR}"
 
+# Prefix output filenames with "catra-" when CATRA control is on, so the runs
+# with and without CATRA are easy to tell apart. Baseline (CATRA=off) keeps the
+# plain filenames.
+if [ "${CATRA}" = "on" ]; then
+  FILE_PREFIX="catra-"
+else
+  FILE_PREFIX=""
+fi
+
 ./ns3 build catra-scenario1 -j 2
 for STATION_COUNT in ${STATIONS}; do
   for DISTANCE_SET in ${ADJACENT_DISTANCE_SETS}; do
     DISTANCE_TAG="${DISTANCE_SET//,/-}"
-    THROUGHPUT_CSV="${OUTPUT_DIR}/throughput-n${STATION_COUNT}-links${DISTANCE_TAG}m-run${RUN}.csv"
-    STATION_CSV="${OUTPUT_DIR}/station-state-n${STATION_COUNT}-links${DISTANCE_TAG}m-run${RUN}.csv"
-    CW_TRACE_CSV="${OUTPUT_DIR}/cw-events-n${STATION_COUNT}-links${DISTANCE_TAG}m-run${RUN}.csv"
+    THROUGHPUT_CSV="${OUTPUT_DIR}/${FILE_PREFIX}throughput-n${STATION_COUNT}-links${DISTANCE_TAG}m-run${RUN}.csv"
+    STATION_CSV="${OUTPUT_DIR}/${FILE_PREFIX}station-state-n${STATION_COUNT}-links${DISTANCE_TAG}m-run${RUN}.csv"
+    CW_TRACE_CSV="${OUTPUT_DIR}/${FILE_PREFIX}cw-events-n${STATION_COUNT}-links${DISTANCE_TAG}m-run${RUN}.csv"
     rm -f "${THROUGHPUT_CSV}" "${STATION_CSV}" "${CW_TRACE_CSV}"
 
     ./ns3 run \
