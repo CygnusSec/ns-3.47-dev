@@ -414,6 +414,10 @@ main(int argc, char* argv[])
 {
     uint32_t stationCount{3};
     std::string mode{"topology"};
+    // Explicit CATRA on/off switch. Empty means "derive from mode" so existing
+    // command lines keep their behavior. "on" forces CATRA measurement over the
+    // baseline traffic; "off" forces the plain baseline with no CATRA at all.
+    std::string catraSwitch;
     double spacingM{200.0};
     std::string distanceList;
     double txPowerDbm{16.0};
@@ -444,6 +448,10 @@ main(int argc, char* argv[])
     // without editing the scenario source.
     CommandLine cmd(__FILE__);
     cmd.AddValue("mode", "Scenario phase: topology, route-probe, baseline, or measure-only", mode);
+    cmd.AddValue("catra",
+                 "Explicit CATRA switch: on (measure), off (plain baseline), or empty to follow "
+                 "mode",
+                 catraSwitch);
     cmd.AddValue("n", "Number of stations in the Scenario 1 chain (3 through 6)", stationCount);
     cmd.AddValue("spacing", "Legacy uniform distance between adjacent stations", spacingM);
     cmd.AddValue("distances",
@@ -480,6 +488,12 @@ main(int argc, char* argv[])
     NS_ABORT_MSG_IF(mode != "topology" && mode != "route-probe" && mode != "baseline" &&
                         mode != "measure-only",
                     "mode must be topology, route-probe, baseline, or measure-only");
+    NS_ABORT_MSG_IF(catraSwitch != "" && catraSwitch != "on" && catraSwitch != "off",
+                    "catra must be on, off, or empty");
+    // The CATRA switch only makes sense once real TCP traffic exists. Reject it
+    // in the topology-only and route-probe phases so the intent stays clear.
+    NS_ABORT_MSG_IF(catraSwitch != "" && mode != "baseline" && mode != "measure-only",
+                    "catra=on/off requires mode=baseline or mode=measure-only");
     NS_ABORT_MSG_IF(spacingM <= 0.0, "spacing must be positive");
     NS_ABORT_MSG_IF(systemLoss < 1.0, "systemLoss must be at least 1.0");
     NS_ABORT_MSG_IF(simulationTimeS <= trafficStartS,
@@ -503,8 +517,13 @@ main(int argc, char* argv[])
     RngSeedManager::SetRun(run);
 
     const bool routeProbeEnabled = mode == "route-probe";
-    const bool measurementEnabled = mode == "measure-only";
-    const bool baselineEnabled = mode == "baseline" || measurementEnabled;
+    // The explicit --catra switch, when set, overrides the CATRA state that the
+    // mode would otherwise imply. --catra=off runs the plain baseline (no CATRA
+    // measurement); --catra=on measures CATRA on top of the baseline traffic.
+    const bool measurementEnabled = catraSwitch == "on"    ? true
+                                    : catraSwitch == "off" ? false
+                                                           : mode == "measure-only";
+    const bool baselineEnabled = mode == "baseline" || mode == "measure-only" || measurementEnabled;
     const bool routesEnabled = routeProbeEnabled || baselineEnabled;
     NS_ABORT_MSG_IF(enableContention && !baselineEnabled,
                     "enableContention requires baseline or measure-only mode");
@@ -514,7 +533,11 @@ main(int argc, char* argv[])
                                  : measurementEnabled ? "read-only-catra-measurement"
                                  : baselineEnabled ? "original-tcp-baseline"
                                                    : "topology-only")
-              << " catra=" << (measurementEnabled ? "measurement-only" : "disabled") << "\n"
+              << " catra="
+              << (measurementEnabled ? "measurement-only"
+                  : baselineEnabled  ? "disabled-baseline"
+                                     : "disabled")
+              << " catra_switch=" << (catraSwitch.empty() ? "follow-mode" : catraSwitch) << "\n"
               << "stations=" << stationCount << " adjacent_distances_m=";
     for (uint32_t index = 0; index < adjacentDistancesM.size(); ++index)
     {
