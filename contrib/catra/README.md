@@ -83,10 +83,11 @@ ADJACENT_DISTANCE_SETS="100,200" \
 ./scripts/catra/run-algorithm1-scenario1.sh
 ```
 
-The runner reads the configured module targets from `./ns3 show targets`.
-CATRA-enabled output files use the `catra-` prefix; CATRA-disabled baseline
-files use `baseline-`. This keeps the two result sets separate without adding
-a runtime CATRA flag.
+After building, the runner asks the Scenario 1 executable to report its
+compile-time features. CATRA-enabled output files use the `catra-` prefix;
+CATRA-disabled baseline files use `baseline-`. The feature query cannot enable
+or disable CATRA; it only prevents filenames from disagreeing with the binary
+that is about to run.
 
 Scenario 1 uses `--trafficProfile=paper` for the paper's two TCP flows. The
 separate `--trafficProfile=tcp-stress` profile adds a saturated CatraTcpTahoe

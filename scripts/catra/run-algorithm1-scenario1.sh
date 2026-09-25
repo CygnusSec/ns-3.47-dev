@@ -25,19 +25,22 @@ MAC_HOP_INTERVAL="${MAC_HOP_INTERVAL:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-results/catra/scenario1/algorithm1}"
 mkdir -p "${OUTPUT_DIR}"
 
-# Derive provenance from the current ns-3 configure-time module selection.
-# `--enable-modules`/`--disable-modules` remain the only CATRA switch; this is
-# not a second runtime feature flag.
-NS3_TARGETS="$(./ns3 show targets)"
-if grep -Eq '(^|[[:space:]])ns3-catra([[:space:]]|$)' <<<"${NS3_TARGETS}"; then
+# Build first, then query the executable itself so the filename provenance
+# always matches the compile definition actually present in that binary.
+./ns3 build catra-scenario1 -j 2
+BUILD_FEATURES="$(./ns3 run 'catra-scenario1 --printBuildFeatures=true' --no-build)"
+if grep -q '^catra_module=enabled$' <<<"${BUILD_FEATURES}"; then
   CATRA_MODULE_STATUS="enabled"
   FILE_PREFIX="catra-${TRAFFIC_PROFILE}-"
-else
+elif grep -q '^catra_module=disabled$' <<<"${BUILD_FEATURES}"; then
   CATRA_MODULE_STATUS="disabled"
   FILE_PREFIX="baseline-${TRAFFIC_PROFILE}-"
+else
+  echo "Cannot determine CATRA compile-time status from catra-scenario1:" >&2
+  echo "${BUILD_FEATURES}" >&2
+  exit 1
 fi
 
-./ns3 build catra-scenario1 -j 2
 for STATION_COUNT in ${STATIONS}; do
   for DISTANCE_SET in ${ADJACENT_DISTANCE_SETS}; do
     DISTANCE_TAG="${DISTANCE_SET//,/-}"

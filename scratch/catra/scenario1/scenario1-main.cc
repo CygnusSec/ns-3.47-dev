@@ -60,6 +60,11 @@ constexpr uint16_t LONG_FORWARD_PORT = 7001;
 constexpr uint16_t LONG_REVERSE_PORT = 7002;
 constexpr uint16_t SHORT_FORWARD_PORT = 7003;
 constexpr uint32_t ROUTE_PROBE_PACKETS = 5;
+#ifdef NS3_CATRA_MODULE_ENABLED
+constexpr bool CATRA_MODULE_COMPILED = true;
+#else
+constexpr bool CATRA_MODULE_COMPILED = false;
+#endif
 
 /** Return the paper role associated with a chain index. */
 std::string
@@ -432,6 +437,7 @@ main(int argc, char* argv[])
     bool verboseCw{false};
     bool measureMacHops{true};
     bool strict{true};
+    bool printBuildFeatures{false};
     double simulationTimeS{300.0};
     double trafficStartS{1.0};
     std::string csvPath{"results/catra/scenario1/tahoe-baseline.csv"};
@@ -472,6 +478,9 @@ main(int argc, char* argv[])
                  "Measure bidirectional per-hop MAC traffic including retries and control frames",
                  measureMacHops);
     cmd.AddValue("strict", "Return failure when a selected-phase invariant is violated", strict);
+    cmd.AddValue("printBuildFeatures",
+                 "Print compile-time Scenario 1 features and exit",
+                 printBuildFeatures);
     cmd.AddValue("simTime", "Simulation stop time in seconds", simulationTimeS);
     cmd.AddValue("trafficStart", "TCP source start time in seconds", trafficStartS);
     cmd.AddValue("csv", "Baseline result CSV path", csvPath);
@@ -483,6 +492,13 @@ main(int argc, char* argv[])
                  "Per-hop MAC measurement interval in seconds",
                  macHopIntervalS);
     cmd.Parse(argc, argv);
+
+    if (printBuildFeatures)
+    {
+        std::cout << "catra_module=" << (CATRA_MODULE_COMPILED ? "enabled" : "disabled")
+                  << "\n";
+        return 0;
+    }
 
     NS_ABORT_MSG_IF(stationCount < MIN_STATIONS || stationCount > MAX_STATIONS,
                     "Scenario 1 requires n in the range [3, 6]");
@@ -517,13 +533,9 @@ main(int argc, char* argv[])
     const bool routeProbeEnabled = mode == "route-probe";
     const bool baselineEnabled = mode == "baseline" || mode == "measure-only";
     const bool routesEnabled = routeProbeEnabled || baselineEnabled;
-#ifdef NS3_CATRA_MODULE_ENABLED
-    constexpr bool catraModuleEnabled = true;
-#else
-    constexpr bool catraModuleEnabled = false;
-#endif
     // CATRA availability is selected once, at ns-3 configure time. Scenario 1
     // remains a runnable TCP Tahoe baseline when the module is absent.
+    const bool catraModuleEnabled = CATRA_MODULE_COMPILED;
     const bool catraControlEnabled = catraModuleEnabled && baselineEnabled;
     const bool measurementEnabled = catraControlEnabled;
     NS_ABORT_MSG_IF(trafficProfile == "tcp-stress" && !baselineEnabled,
