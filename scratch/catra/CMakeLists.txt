@@ -26,6 +26,7 @@ set(scenario1_libraries
     ${libnetwork}
     ${libpropagation}
     ${libwifi}
+    ${libdebug-tools}
 )
 set(scenario1_definitions)
 if(TARGET catra)

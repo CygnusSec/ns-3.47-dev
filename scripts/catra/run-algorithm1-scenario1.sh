@@ -25,9 +25,17 @@ MAC_HOP_INTERVAL="${MAC_HOP_INTERVAL:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-results/catra/scenario1/algorithm1}"
 mkdir -p "${OUTPUT_DIR}"
 
-# The same runner is valid with the ns-3 CATRA module enabled or disabled.
-# Runtime CSV provenance records whether CATRA control was compiled in.
-FILE_PREFIX="scenario1-${TRAFFIC_PROFILE}-"
+# Derive provenance from the current ns-3 configure-time module selection.
+# `--enable-modules`/`--disable-modules` remain the only CATRA switch; this is
+# not a second runtime feature flag.
+NS3_TARGETS="$(./ns3 show targets)"
+if grep -Eq '(^|[[:space:]])ns3-catra([[:space:]]|$)' <<<"${NS3_TARGETS}"; then
+  CATRA_MODULE_STATUS="enabled"
+  FILE_PREFIX="catra-${TRAFFIC_PROFILE}-"
+else
+  CATRA_MODULE_STATUS="disabled"
+  FILE_PREFIX="baseline-${TRAFFIC_PROFILE}-"
+fi
 
 ./ns3 build catra-scenario1 -j 2
 for STATION_COUNT in ${STATIONS}; do
@@ -44,10 +52,16 @@ for STATION_COUNT in ${STATIONS}; do
       --no-build
 
     echo "scenario1_catra_selection=ns3-configure-time"
+    echo "scenario1_catra_module=${CATRA_MODULE_STATUS}"
+    echo "scenario1_output_prefix=${FILE_PREFIX}"
     echo "scenario1_mode=${MODE}"
     echo "scenario1_adjacent_distances_m=${DISTANCE_SET}"
     echo "scenario1_traffic_profile=${TRAFFIC_PROFILE}"
-    echo "scenario1_station_csv=${STATION_CSV}"
+    if [[ "${CATRA_MODULE_STATUS}" == "enabled" ]]; then
+      echo "scenario1_station_csv=${STATION_CSV}"
+    else
+      echo "scenario1_station_csv=not-created-catra-module-disabled"
+    fi
     echo "scenario1_throughput_csv=${THROUGHPUT_CSV}"
     echo "scenario1_cw_trace_csv=${CW_TRACE_CSV}"
     echo "scenario1_mac_hop_interval_s=${MAC_HOP_INTERVAL}"

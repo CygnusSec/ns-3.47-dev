@@ -83,6 +83,11 @@ ADJACENT_DISTANCE_SETS="100,200" \
 ./scripts/catra/run-algorithm1-scenario1.sh
 ```
 
+The runner reads the configured module targets from `./ns3 show targets`.
+CATRA-enabled output files use the `catra-` prefix; CATRA-disabled baseline
+files use `baseline-`. This keeps the two result sets separate without adding
+a runtime CATRA flag.
+
 Scenario 1 uses `--trafficProfile=paper` for the paper's two TCP flows. The
 separate `--trafficProfile=tcp-stress` profile adds a saturated CatraTcpTahoe
 flow from R to S1 and includes it in the Algorithm 1 flow counts. This stress
