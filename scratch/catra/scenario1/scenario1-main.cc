@@ -545,6 +545,11 @@ main(int argc, char* argv[])
                                                              : baselineEnabled;
     NS_ABORT_MSG_IF(measurementEnabled && !baselineEnabled,
                     "measure=on requires mode=baseline or mode=measure-only");
+    // CATRA control applies CW' inside the per-EP measurement callback, so it
+    // cannot run without measurement. Reject the contradictory combination
+    // rather than silently ignoring the control switch.
+    NS_ABORT_MSG_IF(catraControlEnabled && !measurementEnabled,
+                    "catra=on requires measurement (do not combine with measure=off)");
     NS_ABORT_MSG_IF(enableContention && !baselineEnabled,
                     "enableContention requires baseline or measure-only mode");
     std::cout << "\n=== 1. Scenario 1 configuration ===\n"
@@ -570,7 +575,8 @@ main(int argc, char* argv[])
               << "[PHASE-BOUNDARY] routes_populated=" << routesEnabled
               << " udp=" << routeProbeEnabled << " tcp=" << baselineEnabled
               << " catra_measurement=" << measurementEnabled
-              << " catra_control=" << catraControlEnabled << " catra_control_applied=false"
+              << " catra_control=" << catraControlEnabled
+              << " catra_control_applied=" << (catraControlEnabled && measurementEnabled)
               << " extra_contention_load=" << enableContention
               << " cw_trace=" << traceCw << "\n";
 
@@ -655,11 +661,17 @@ main(int argc, char* argv[])
     NetDeviceContainer devices = wifi.Install(phy, mac, nodes);
     wifi.AssignStreams(devices, 0);
     Ptr<Txop> referenceTxop = DynamicCast<WifiNetDevice>(devices.Get(0))->GetMac()->GetTxop();
+    // Capture the standard 802.11 CW bounds once. CATRA control pins a station's
+    // live cwMin/cwMax to CW', so GetMaxCw() would no longer report the true
+    // ceiling on later periods. Eq. (5) must always clamp against the original
+    // CWmax, so we keep these fixed references for the decision arithmetic.
+    const uint32_t standardCwMinNs3 = referenceTxop->GetMinCw(0);
+    const uint32_t standardCwMaxNs3 = referenceTxop->GetMaxCw(0);
     std::cout << "cw_representation=ns3-inclusive-upper-bound"
-              << " resolved_cw_min=" << referenceTxop->GetMinCw(0)
-              << " resolved_cw_max=" << referenceTxop->GetMaxCw(0)
-              << " paper_window_min=" << referenceTxop->GetMinCw(0) + 1
-              << " paper_window_max=" << referenceTxop->GetMaxCw(0) + 1 << "\n";
+              << " resolved_cw_min=" << standardCwMinNs3
+              << " resolved_cw_max=" << standardCwMaxNs3
+              << " paper_window_min=" << standardCwMinNs3 + 1
+              << " paper_window_max=" << standardCwMaxNs3 + 1 << "\n";
 
     std::unique_ptr<Scenario1CwTraceLogger> cwTraceLogger;
     if (traceCw)
@@ -727,20 +739,43 @@ main(int argc, char* argv[])
         {
             Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
             auto report =
-                [&, index, counts, localDevice, measurementTag, decisionMode](
-                    const CatraActiveTimeSample& sample) {
+                [&, index, counts, localDevice, measurementTag, decisionMode, catraControlEnabled,
+                 standardCwMinNs3, standardCwMaxNs3](const CatraActiveTimeSample& sample) {
                 const auto& flowCounts = counts.at(index);
                 const uint64_t packetCount = sample.tcpDataPackets + sample.tcpAckPackets;
                 const bool valid = std::isfinite(sample.realBandwidthRatio) &&
                                    sample.realBandwidthRatio >= 0.0 && flowCounts.nTotal > 0;
                 const uint32_t currentCwNs3 = localDevice->GetMac()->GetTxop()->GetCw(0);
                 const uint32_t currentCwSlots = currentCwNs3 + 1;
+                // Eq. (5) multiplies the *original* back-off window, not the CW
+                // that CATRA pinned in the previous period. When control is on
+                // and we pin cwMin=cwMax=CW', GetCw() would return that pinned
+                // value, so feeding it back would shrink CW geometrically. Use
+                // the standard CWmin as the stable base so CW' can rise again if
+                // the station later exceeds its fair share. In preview mode
+                // (control off) the live CW is the honest base.
+                const uint32_t baseCwNs3 = catraControlEnabled ? standardCwMinNs3 : currentCwNs3;
                 const CatraMacDecision macDecision = CalculateCatraMacDecision(
-                    currentCwNs3,
-                    localDevice->GetMac()->GetTxop()->GetMaxCw(0),
+                    baseCwNs3,
+                    standardCwMaxNs3,
                     flowCounts.fairBandwidthRatio,
                     sample.realBandwidthRatio);
                 measurementPassed = measurementPassed && valid;
+
+                // Apply CATRA channel access control (paper Eq. 5) to the live
+                // MAC only when control is enabled and this station actually
+                // sends flows (FBRS > 0). Setting both cwMin and cwMax to the
+                // CATRA value pins the window so BEB cannot escalate away from
+                // it before the next EP; the setters call ResetCw internally so
+                // the next backoff uses the new value immediately. Stations with
+                // FBRS = 0 (the receiver R) keep the standard DCF/BEB window.
+                if (catraControlEnabled && valid && flowCounts.fairBandwidthRatio > 0.0 &&
+                    macDecision.action != CatraMacAction::NO_DATA_SEND_FLOW)
+                {
+                    Ptr<Txop> txop = localDevice->GetMac()->GetTxop();
+                    txop->SetMinCw(macDecision.ns3Cw, 0);
+                    txop->SetMaxCw(macDecision.ns3Cw, 0);
+                }
                 std::ofstream output(stationCsvPath, std::ios::app);
                 output << std::fixed << std::setprecision(6) << sample.periodEnd.GetSeconds() << ','
                        << index << ',' << GetNodeRole(index, stationCount) << ','
