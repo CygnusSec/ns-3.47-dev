@@ -411,16 +411,6 @@ main(int argc, char* argv[])
 {
     uint32_t stationCount{3};
     std::string mode{"topology"};
-    // Explicit CATRA control switch. Empty means "derive from mode" so existing
-    // command lines keep their behavior. "on" enables CATRA control intent;
-    // "off" runs the plain baseline. Note: this switch is about applying CATRA
-    // control, not about whether MAC channel access is measured (see --measure).
-    std::string catraSwitch;
-    // Independent switch for the passive Algorithm 1 channel-access measurement.
-    // Empty = measure whenever real TCP traffic exists (baseline or CATRA), so
-    // the per-station channel access is visible even without CATRA. "on"/"off"
-    // force it explicitly.
-    std::string measureSwitch;
     double spacingM{200.0};
     std::string distanceList;
     double txPowerDbm{16.0};
@@ -454,13 +444,6 @@ main(int argc, char* argv[])
     // without editing the scenario source.
     CommandLine cmd(__FILE__);
     cmd.AddValue("mode", "Scenario phase: topology, route-probe, baseline, or measure-only", mode);
-    cmd.AddValue("catra",
-                 "CATRA control switch: on, off, or empty to follow mode",
-                 catraSwitch);
-    cmd.AddValue("measure",
-                 "MAC channel-access measurement (Algorithm 1): on, off, or empty to measure "
-                 "whenever TCP traffic exists",
-                 measureSwitch);
     cmd.AddValue("n", "Number of stations in the Scenario 1 chain (3 through 6)", stationCount);
     cmd.AddValue("spacing", "Legacy uniform distance between adjacent stations", spacingM);
     cmd.AddValue("distances",
@@ -504,16 +487,8 @@ main(int argc, char* argv[])
     NS_ABORT_MSG_IF(mode != "topology" && mode != "route-probe" && mode != "baseline" &&
                         mode != "measure-only",
                     "mode must be topology, route-probe, baseline, or measure-only");
-    NS_ABORT_MSG_IF(catraSwitch != "" && catraSwitch != "on" && catraSwitch != "off",
-                    "catra must be on, off, or empty");
-    NS_ABORT_MSG_IF(measureSwitch != "" && measureSwitch != "on" && measureSwitch != "off",
-                    "measure must be on, off, or empty");
     NS_ABORT_MSG_IF(trafficProfile != "paper" && trafficProfile != "tcp-stress",
                     "trafficProfile must be paper or tcp-stress");
-    // The CATRA switch only makes sense once real TCP traffic exists. Reject it
-    // in the topology-only and route-probe phases so the intent stays clear.
-    NS_ABORT_MSG_IF(catraSwitch != "" && mode != "baseline" && mode != "measure-only",
-                    "catra=on/off requires mode=baseline or mode=measure-only");
     NS_ABORT_MSG_IF(spacingM <= 0.0, "spacing must be positive");
     NS_ABORT_MSG_IF(systemLoss < 1.0, "systemLoss must be at least 1.0");
     NS_ABORT_MSG_IF(simulationTimeS <= trafficStartS,
@@ -540,25 +515,13 @@ main(int argc, char* argv[])
     const bool routeProbeEnabled = mode == "route-probe";
     const bool baselineEnabled = mode == "baseline" || mode == "measure-only";
     const bool routesEnabled = routeProbeEnabled || baselineEnabled;
-    // CATRA control. --catra=on/off overrides the mode default; enabled control
-    // applies Eq. (5) as an adaptive DCF CWmin at every completed EP.
-    const bool catraControlEnabled = catraSwitch == "on"    ? true
-                                     : catraSwitch == "off" ? false
-                                                            : mode == "measure-only";
-    // Passive Algorithm 1 channel-access measurement. Decoupled from the CATRA
-    // control switch so per-station channel access is observed even without
-    // CATRA. Default: measure whenever real TCP traffic exists. --measure=off
-    // suppresses it; --measure=on forces it (still requires TCP traffic).
-    const bool measurementEnabled = measureSwitch == "on"    ? true
-                                    : measureSwitch == "off" ? false
-                                                             : baselineEnabled;
-    NS_ABORT_MSG_IF(measurementEnabled && !baselineEnabled,
-                    "measure=on requires mode=baseline or mode=measure-only");
-    // CATRA control applies CW' inside the per-EP measurement callback, so it
-    // cannot run without measurement. Reject the contradictory combination
-    // rather than silently ignoring the control switch.
-    NS_ABORT_MSG_IF(catraControlEnabled && !measurementEnabled,
-                    "catra=on requires measurement (do not combine with measure=off)");
+    // This executable exists only when the contributed ns-3 CATRA module is
+    // enabled. Every real-TCP phase therefore applies Eq. (5) as adaptive CWmin;
+    // there is no second runtime CATRA feature flag.
+    const bool catraControlEnabled = baselineEnabled;
+    // Algorithm 1 is the mandatory input to CATRA CW control. Both are active
+    // together in every real-TCP phase of this module-backed executable.
+    const bool measurementEnabled = baselineEnabled;
     NS_ABORT_MSG_IF(trafficProfile == "tcp-stress" && !baselineEnabled,
                     "trafficProfile=tcp-stress requires baseline or measure-only mode");
     const bool tcpStressEnabled = trafficProfile == "tcp-stress";
@@ -571,9 +534,9 @@ main(int argc, char* argv[])
                                                        : "topology-only")
               << " traffic_profile=" << trafficProfile
               << " channel_access_measurement=" << (measurementEnabled ? "on" : "off")
+              << " catra_module=enabled"
               << " catra_control=" << (catraControlEnabled ? "on" : "off")
-              << " catra_switch=" << (catraSwitch.empty() ? "follow-mode" : catraSwitch)
-              << " measure_switch=" << (measureSwitch.empty() ? "auto" : measureSwitch) << "\n"
+              << "\n"
               << "stations=" << stationCount << " adjacent_distances_m=";
     for (uint32_t index = 0; index < adjacentDistancesM.size(); ++index)
     {
@@ -789,12 +752,8 @@ main(int argc, char* argv[])
             Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice>(devices.Get(index));
             devicesByAddress.emplace(Mac48Address::ConvertFrom(device->GetAddress()), device);
         }
-        // The console tag reflects what is actually happening. With CATRA control
-        // off this loop only *measures* channel access; the CW' decision is a
-        // preview that is not applied to the live Txop.
-        const std::string measurementTag =
-            catraControlEnabled ? "[CATRA-STATION]" : "[MAC-CHANNEL-ACCESS]";
-        const std::string decisionMode = catraControlEnabled ? "applied" : "preview-not-applied";
+        const std::string measurementTag{"[CATRA-STATION]"};
+        const std::string decisionMode{"module-applied"};
         for (uint32_t index = 0; index < devices.GetN(); ++index)
         {
             Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
@@ -834,8 +793,8 @@ main(int argc, char* argv[])
                     }
                     applied = true;
                     // This line proves CATRA control actually wrote the live MAC.
-                    // If you run --catra=on and never see [CATRA-CW-APPLIED],
-                    // the running binary is stale (rebuild) or control is off.
+                    // In a real-TCP phase this line proves the enabled CATRA
+                    // module wrote its decision to the live MAC.
                     std::cout << "[CATRA-CW-APPLIED] time_s=" << sample.periodEnd.GetSeconds()
                               << " node=" << index
                               << " cw_before_ns3=" << currentCwNs3

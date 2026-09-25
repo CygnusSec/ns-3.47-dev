@@ -2,6 +2,15 @@
 # executables.  The parent scratch auto-discovery cannot infer two main()
 # functions from one directory, so each program is declared explicitly here.
 
+# CATRA scratch programs are part of the contributed CATRA module contract.
+# When the module is disabled at configure time, do not register these targets.
+# This also keeps stale executables out of ns3_runnable_programs, so `./ns3 run`
+# cannot launch a CATRA scenario from an earlier build configuration.
+if(NOT TARGET catra)
+  message(STATUS "Skipping scratch/catra: ns-3 module 'catra' is disabled")
+  return()
+endif()
+
 build_exec(
   EXECNAME catra-phy-range-probe
   SOURCE_FILES catra-phy-range-probe.cc

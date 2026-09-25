@@ -11,14 +11,6 @@ ADJACENT_DISTANCE_SETS="${ADJACENT_DISTANCE_SETS:-200,250 250,200 200,200}"
 SIM_TIME="${SIM_TIME:-300}"
 EP="${EP:-2}"
 RUN="${RUN:-1}"
-# CATRA control switch. "on" applies CW' as adaptive CWmin; "off" previews the
-# decision without modifying MAC state. Algorithm 1 measurement is independent
-# of this switch, so per-station channel access is measured in BOTH cases.
-CATRA="${CATRA:-on}"
-# MAC channel-access measurement switch. Empty/"on" measures Algorithm 1 over the
-# TCP traffic; "off" collects throughput only. Default measures in both CATRA
-# on and off so you can compare channel access with and without CATRA.
-MEASURE="${MEASURE:-on}"
 # Base scenario mode always installs the two saturated TCP flows.
 MODE="${MODE:-baseline}"
 # "paper" reproduces the two TCP flows in Scenario 1. "tcp-stress" adds one
@@ -33,15 +25,7 @@ MAC_HOP_INTERVAL="${MAC_HOP_INTERVAL:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-results/catra/scenario1/algorithm1}"
 mkdir -p "${OUTPUT_DIR}"
 
-# Prefix output filenames with "catra-" when CATRA control is on, so the runs
-# with and without CATRA are easy to tell apart. Baseline (CATRA=off) keeps the
-# plain filenames.
-if [ "${CATRA}" = "on" ]; then
-  FILE_PREFIX="catra-"
-else
-  FILE_PREFIX=""
-fi
-FILE_PREFIX="${FILE_PREFIX}${TRAFFIC_PROFILE}-"
+FILE_PREFIX="catra-${TRAFFIC_PROFILE}-"
 
 ./ns3 build catra-scenario1 -j 2
 for STATION_COUNT in ${STATIONS}; do
@@ -54,11 +38,10 @@ for STATION_COUNT in ${STATIONS}; do
     rm -f "${THROUGHPUT_CSV}" "${STATION_CSV}" "${CW_TRACE_CSV}" "${MAC_HOP_CSV}"
 
     ./ns3 run \
-      "catra-scenario1 --mode=${MODE} --catra=${CATRA} --measure=${MEASURE} --trafficProfile=${TRAFFIC_PROFILE} --n=${STATION_COUNT} --distances=${DISTANCE_SET} --simTime=${SIM_TIME} --ep=${EP} --run=${RUN} --traceCw=${TRACE_CW} --verboseCw=${VERBOSE_CW} --measureMacHops=${MEASURE_MAC_HOPS} --macHopInterval=${MAC_HOP_INTERVAL} --strict=true --printTopology=false --csv=${THROUGHPUT_CSV} --stationCsv=${STATION_CSV} --cwTraceCsv=${CW_TRACE_CSV} --macHopCsv=${MAC_HOP_CSV}" \
+      "catra-scenario1 --mode=${MODE} --trafficProfile=${TRAFFIC_PROFILE} --n=${STATION_COUNT} --distances=${DISTANCE_SET} --simTime=${SIM_TIME} --ep=${EP} --run=${RUN} --traceCw=${TRACE_CW} --verboseCw=${VERBOSE_CW} --measureMacHops=${MEASURE_MAC_HOPS} --macHopInterval=${MAC_HOP_INTERVAL} --strict=true --printTopology=false --csv=${THROUGHPUT_CSV} --stationCsv=${STATION_CSV} --cwTraceCsv=${CW_TRACE_CSV} --macHopCsv=${MAC_HOP_CSV}" \
       --no-build
 
-    echo "algorithm1_catra=${CATRA}"
-    echo "algorithm1_measure=${MEASURE}"
+    echo "algorithm1_catra_module=enabled"
     echo "algorithm1_mode=${MODE}"
     echo "algorithm1_adjacent_distances_m=${DISTANCE_SET}"
     echo "algorithm1_traffic_profile=${TRAFFIC_PROFILE}"

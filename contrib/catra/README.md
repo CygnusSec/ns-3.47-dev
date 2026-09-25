@@ -2,8 +2,8 @@
 
 This ns-3 module contains CATRA logic that is independent of a concrete
 scenario. A scenario opts in by linking `${libcatra}` and creating the required
-measurement/controller objects. Merely running a baseline mode does not create
-CATRA state or alter MAC/TCP behavior.
+measurement/controller objects. Scenario 1 TCP phases always create Algorithm
+1 measurement and apply CATRA MAC control.
 
 ## Ownership
 
@@ -18,15 +18,42 @@ remain under `scratch/catra/scenario1`.
 
 ## Current integration boundary
 
-- Algorithm 1 measurement is independently selectable with `--measure=on/off`.
-- `--catra=on` applies `CW'` as the adaptive `Txop` CWmin while retaining the
-  standard CWmax, so native DCF/BEB remains active.
+- Algorithm 1 measurement is mandatory in Scenario 1 TCP phases because it
+  supplies the RBR input for CATRA CW control.
+- In Scenario 1 TCP phases, the enabled CATRA module applies `CW'` as the
+  adaptive `Txop` CWmin while retaining the standard CWmax, so native DCF/BEB
+  remains active.
 - The TCP controller implements and validates Algorithm 2 decisions; it is not
   yet connected to a live ns-3 TCP socket/recovery path.
-- `--catra=off --measure=on` provides a read-only decision preview.
+- CATRA availability is a configure-time ns-3 module decision, not a runtime
+  `--catra` switch.
 
-These boundaries prevent a read-only experiment from being mistaken for live
-CATRA control.
+There is no runtime flag that turns this module-backed Scenario 1 into a plain
+non-CATRA baseline.
+
+## Enable or disable the ns-3 module
+
+Enable CATRA before building Scenario 1:
+
+```bash
+./ns3 configure --enable-modules=catra --disable-modules=
+./ns3 build catra-scenario1
+```
+
+Disable CATRA with:
+
+```bash
+./ns3 configure --enable-modules= --disable-modules=catra
+```
+
+Both commands explicitly clear the opposite cached module list. This matters
+when switching an existing CMake build directory between enabled and disabled
+states.
+
+The CATRA scratch CMake file registers no probes or Scenario 1 executable when
+the `catra` target is absent. Consequently `./ns3 build catra-scenario1` and
+`./ns3 run catra-scenario1` are unavailable in that build configuration. This
+is enforced by target registration rather than by a runtime branch.
 
 Scenario 1 uses `--trafficProfile=paper` for the paper's two TCP flows. The
 separate `--trafficProfile=tcp-stress` profile adds a saturated CatraTcpTahoe
