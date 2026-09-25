@@ -81,6 +81,6 @@ The following mapping must be completed before the first cwnd/delay write:
 - Application scheduling hook used for `deltaF` without blocking simulation.
 
 The pure Algorithm 2 equations and decisions are implemented in
-`tcp_rate_adaptation/catra-tcp-controller.{h,cc}` and validated independently. The remaining items
+`contrib/catra/model/tcp/catra-tcp-controller.{h,cc}` and validated independently. The remaining items
 above concern runtime ownership/integration and are intentionally not hidden
 inside the pure controller.

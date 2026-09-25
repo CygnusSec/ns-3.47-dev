@@ -39,7 +39,7 @@ và Jain fairness index.
   choices và acceptance gates.
 - `scratch/catra/catra-phy-range-probe.cc` đã định nghĩa phép kiểm tra quan hệ
   decode/CCA tại 200, 250, 400, 550 và 600 m.
-- `scratch/catra/catra-scenario1.cc` đã dựng chain topology `n=3..6`, calibrated
+- `scratch/catra/scenario1/scenario1-main.cc` đã dựng chain topology `n=3..6`, calibrated
   802.11b PHY, địa chỉ IPv4 và kiểm tra invariant Phase 2.
 - `scratch/catra/active-time-estimation/` đã có implementation đọc-only của
   Algorithm 1, gồm packet parser, MAC observer, transaction tracker và
@@ -713,25 +713,22 @@ Chỉ tách file khi responsibility đã ổn định. Thứ tự đề xuất:
 
 ```text
 scratch/catra/
-├── catra-scenario1.cc              # CLI + orchestration
-├── scenario1-topology.cc/.h        # nodes, PHY, positions, addresses
-├── scenario1-routing.cc/.h         # static routes + route probe
-├── scenario1-traffic.cc/.h         # TCP applications and sinks
-├── scenario1-metrics.cc/.h         # throughput and CSV
-├── flow-counting.cc/.h             # pure flow-count model
-├── active-time-estimation/         # existing Algorithm 1 components
-├── catra-mac-controller.cc/.h      # pure decision + runtime adapter
-├── tcp_rate_adaptation/
-│   ├── catra-tcp-controller.cc/.h  # pure Algorithm 2 decision
-│   └── catra-tcp-controller-probe.cc
-├── NS3_SOURCE_MAPPING.md
-├── README.md
-└── SCENARIO1_EXECUTION_PLAN.md
+├── scenario1/scenario1-main.cc          # CLI + orchestration
+├── scenario1/baseline/                  # CATRA disabled
+│   ├── scenario1-baseline.cc/.h         # traffic, forwarding, metrics
+│   └── tcp-tahoe.cc/.h
+├── scenario1/catra/scenario1-catra.cc/.h # Scenario 1 flow counts/FBR adapter
+├── active-time-estimation/catra-active-time-probe.cc
+└── tcp_rate_adaptation/catra-tcp-controller-probe.cc
+
+contrib/catra/model/
+├── measurement/                         # shared Algorithm 1 implementation
+├── mac/catra-mac-controller.cc/.h       # shared CW' decision
+└── tcp/catra-tcp-controller.cc/.h       # shared Algorithm 2 decision
 ```
 
-Chưa chuyển sang `contrib/catra` cho đến khi baseline, measurement contracts và
-controller interfaces ổn định. Khi chuyển, giữ executable assembly trong
-`scratch/catra` và chỉ chuyển reusable model/controller code.
+Reusable measurement/controller code đã chuyển sang `contrib/catra`; executable
+assembly và mapping riêng của Scenario 1 vẫn nằm trong `scratch/catra/scenario1`.
 
 ## 6. Kế hoạch commit
 

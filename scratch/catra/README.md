@@ -18,19 +18,23 @@ research scenarios can use separate sibling directories under `scratch`:
 
 ```text
 scratch/catra/
-├── CMakeLists.txt
-├── README.md
+├── scenario1/
+│   ├── scenario1-main.cc             # CLI, topology and mode selection
+│   ├── baseline/                     # no-CATRA traffic, forwarding and Tahoe
+│   │   ├── scenario1-baseline.cc/.h
+│   │   └── tcp-tahoe.cc/.h
+│   └── catra/                        # Scenario 1 route-to-FBR adapter
+│       └── scenario1-catra.cc/.h
 ├── active-time-estimation/
-│   ├── catra-active-time-estimator.cc/.h
-│   ├── catra-algorithm-packet.cc/.h
-│   ├── catra-active-time-probe.cc
-│   ├── catra-mac-transaction-tracker.cc/.h
-│   └── observe-mac-frame.cc/.h
+│   └── catra-active-time-probe.cc
 ├── tcp_rate_adaptation/
-│   ├── catra-tcp-controller.cc/.h
 │   └── catra-tcp-controller-probe.cc
-├── catra-phy-range-probe.cc
-└── catra-scenario1.cc
+└── catra-phy-range-probe.cc
+
+contrib/catra/                         # shared by every CATRA scenario
+├── model/measurement/                # Algorithm 1 packet/airtime state
+├── model/mac/catra-mac-controller.*  # CW' decision, Equation (5)
+└── model/tcp/catra-tcp-controller.*  # Algorithm 2 decision core
 ```
 
 `CMakeLists.txt` declares each executable separately because both C++ files
@@ -77,7 +81,7 @@ Passing a later phase does not waive an earlier acceptance gate.
 
 ### Phase 2 topology record
 
-`scratch/catra/catra-scenario1.cc` now builds the topology-only baseline. It installs
+`scratch/catra/scenario1/scenario1-main.cc` now builds the topology-only baseline. It installs
 the calibrated shared 802.11b ad-hoc channel, constant positions, one Wi-Fi
 device and IPv4 address per station, and the static-routing implementation
 without populating destination-specific routes.
@@ -254,7 +258,7 @@ porting choice.
 
 ### Algorithm 2 decision implementation
 
-`tcp_rate_adaptation/catra-tcp-controller.{h,cc}` contains the side-effect-free
+`contrib/catra/model/tcp/catra-tcp-controller.{h,cc}` contains the side-effect-free
 Algorithm 2 decision core. All ns-3 TCP window inputs use byte units and
 `bytesInFlight` replaces the algebraically equivalent
 `currentSequence-highestAck` term, avoiding TCP sequence wrap-around errors:
@@ -507,13 +511,16 @@ singleton.
 
 ```text
 scratch/catra/catra-phy-range-probe.cc   Phase 1 calibration executable
-scratch/catra/catra-scenario1.cc         Scenario and baseline executable
-contrib/catra/                     Reusable CATRA measurement/control module
+scratch/catra/scenario1/                  Scenario-specific executable and adapters
+scratch/catra/scenario1/baseline/         No-CATRA traffic, metrics and Tahoe
+contrib/catra/model/measurement/          Shared Algorithm 1 measurement
+contrib/catra/model/mac/                  Shared MAC CW' decision
+contrib/catra/model/tcp/                  Shared Algorithm 2 decision
 ```
 
 Standalone experiment assembly stays in `scratch`. Reusable flow identity,
 airtime measurement, station state, MAC control, and TCP congestion control
-move to `contrib/catra` only after the baseline has passed its gates.
+live in `contrib/catra`; scenario assembly remains under `scratch/catra/scenario1`.
 
 ## Phase 0 completion record
 

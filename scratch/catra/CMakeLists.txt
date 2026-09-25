@@ -12,15 +12,15 @@ build_exec(
 
 build_exec(
   EXECNAME catra-scenario1
-  SOURCE_FILES catra-scenario1.cc
-               tcp-tahoe.cc
-               active-time-estimation/catra-active-time-estimator.cc
-               active-time-estimation/catra-algorithm-packet.cc
-               active-time-estimation/catra-mac-transaction-tracker.cc
-               active-time-estimation/observe-mac-frame.cc
+  EXECNAME_PREFIX scratch_catra_scenario1_
+  SOURCE_FILES scenario1/scenario1-main.cc
+               scenario1/baseline/scenario1-baseline.cc
+               scenario1/baseline/tcp-tahoe.cc
+               scenario1/catra/scenario1-catra.cc
   LIBRARIES_TO_LINK "${ns3-libs}"
                     "${ns3-contrib-libs}"
-  EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra
+                    "${libcatra}"
+  EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/scenario1
 )
 
 build_exec(
@@ -29,12 +29,9 @@ build_exec(
   # nested active-time-estimation directory.
   EXECNAME_PREFIX scratch_catra_active-time-estimation_
   SOURCE_FILES active-time-estimation/catra-active-time-probe.cc
-               active-time-estimation/catra-active-time-estimator.cc
-               active-time-estimation/catra-algorithm-packet.cc
-               active-time-estimation/catra-mac-transaction-tracker.cc
-               active-time-estimation/observe-mac-frame.cc
   LIBRARIES_TO_LINK "${ns3-libs}"
                     "${ns3-contrib-libs}"
+                    "${libcatra}"
   EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/active-time-estimation
 )
 
@@ -42,8 +39,8 @@ build_exec(
   EXECNAME catra-tcp-controller-probe
   EXECNAME_PREFIX scratch_catra_tcp_rate_adaptation_
   SOURCE_FILES tcp_rate_adaptation/catra-tcp-controller-probe.cc
-               tcp_rate_adaptation/catra-tcp-controller.cc
   LIBRARIES_TO_LINK "${ns3-libs}"
                     "${ns3-contrib-libs}"
+                    "${libcatra}"
   EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/tcp_rate_adaptation
 )

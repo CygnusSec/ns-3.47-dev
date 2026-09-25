@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "catra-tcp-controller.h"
+#include "ns3/catra-tcp-controller.h"
 
 #include "ns3/core-module.h"
 
