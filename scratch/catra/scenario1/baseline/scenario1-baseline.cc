@@ -224,9 +224,11 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
               << "[BASELINE] total_e2e_mbps=" << totalE2eMbps
               << " paper_total_approx_mbps=" << paperTotalApproxMbps
               << " jain=" << jain << " active_s=" << activeS << "\n"
-              << "[BASELINE-HOP-BW] flow=Flow2 hop_bandwidth_mbps=" << flow2HopBandwidth.str()
+              << "[BASELINE-IP-HOP-GOODPUT] flow=Flow2 hop_goodput_mbps="
+              << flow2HopBandwidth.str()
               << "\n"
-              << "[BASELINE-HOP-BW] flow=Flow1 hop_bandwidth_mbps=" << flow1HopBandwidth.str()
+              << "[BASELINE-IP-HOP-GOODPUT] flow=Flow1 hop_goodput_mbps="
+              << flow1HopBandwidth.str()
               << "\n";
     if (applications.tcpStressSink)
     {
@@ -246,7 +248,7 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
         "tcp,sim_time_s,ep_s,contention_protocol,active_s,flow1_mbps,flow2_mbps,"
         "tcp_stress_mbps,total_e2e_mbps,paper_total_approx_mbps,jain,flow1_rx_bytes,"
         "flow2_rx_bytes,flow2_path,flow2_relay_nodes,flow2_forwarded_tcp_data_packets,"
-        "flow2_hop_bandwidth_mbps,flow1_hop_bandwidth_mbps,tcp_stress_rx_bytes,"
+        "flow2_ip_hop_goodput_mbps,flow1_ip_hop_goodput_mbps,tcp_stress_rx_bytes,"
         "tcp_stress_path,tcp_stress_hops";
     if (!writeHeader)
     {

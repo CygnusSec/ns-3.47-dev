@@ -35,3 +35,25 @@ flow is experiment traffic rather than part of the paper scenario.
 `--traceCw=true` records the native ns-3 `CwTrace` and
 `BackoffTrace` events, including BEB increases, success resets, random backoff
 slots, fixed slot time, CATRA EP updates, and the resulting backoff duration.
+
+## Scenario 1 per-hop MAC time series
+
+`--measureMacHops=true` records transmitted load from `MonitorSnifferTx` in
+fixed intervals selected by `--macHopInterval` (one second by default). The
+output path is selected with `--macHopCsv`.
+
+For every adjacent hop and interval, the CSV contains three rows: one for each
+physical direction (`n0->n1` and `n1->n0`, for example) and a `both` row that
+sums them. The counters include:
+
+- TCP DATA and pure TCP ACK MAC-DATA frames for Flow1, Flow2 and TCP stress;
+- every retransmitted MAC-DATA attempt, identified by the 802.11 Retry bit;
+- RTS, CTS and normal MAC ACK frames;
+- total transmitted MAC bytes, `total_mac_tx_mbps`, transmit airtime and PHY
+  airtime ratio.
+
+This metric is transmitted MAC load, not application goodput: retransmissions
+and control frames intentionally increase it. The older IP receive-byte metric
+is retained only as `BASELINE-IP-HOP-GOODPUT` for comparison. In paper profile,
+the final hop's `both` row is the combined real link load of Flow1, Flow2 and
+their reverse TCP ACK traffic.

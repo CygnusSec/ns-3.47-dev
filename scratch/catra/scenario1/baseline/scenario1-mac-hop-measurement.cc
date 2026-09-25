@@ -40,14 +40,17 @@ Scenario1MacHopMeasurement::Scenario1MacHopMeasurement(uint32_t stationCount,
       m_startTimeS(startTimeS),
       m_stopTimeS(stopTimeS),
       m_intervalS(intervalS),
-      m_intervalCount(static_cast<uint32_t>(std::ceil((stopTimeS - startTimeS) / intervalS))),
+      m_intervalCount(intervalS > 0.0 && stopTimeS > startTimeS
+                          ? static_cast<uint32_t>(
+                                std::ceil((stopTimeS - startTimeS) / intervalS))
+                          : 0),
       m_csvPath(std::move(csvPath)),
       m_trafficProfile(std::move(trafficProfile)),
       m_catraEnabled(catraEnabled),
       m_seed(seed),
       m_run(run),
       m_adjacentDistances(std::move(adjacentDistances)),
-      m_counters(m_intervalCount * (stationCount - 1) * 2)
+      m_counters(m_intervalCount * (stationCount > 0 ? stationCount - 1 : 0) * 2)
 {
     NS_ABORT_MSG_IF(stationCount < 2, "MAC hop measurement requires at least two stations");
     NS_ABORT_MSG_IF(intervalS <= 0.0, "MAC hop measurement interval must be positive");
@@ -350,8 +353,8 @@ Scenario1MacHopMeasurement::WriteCsv() const
             Counters both;
             Add(both, forward);
             Add(both, reverse);
-            writeRow("forward", forward);
-            writeRow("reverse", reverse);
+            writeRow("n" + std::to_string(hop) + "->n" + std::to_string(hop + 1), forward);
+            writeRow("n" + std::to_string(hop + 1) + "->n" + std::to_string(hop), reverse);
             writeRow("both", both);
         }
     }
