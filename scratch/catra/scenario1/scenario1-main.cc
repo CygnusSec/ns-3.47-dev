@@ -773,8 +773,22 @@ main(int argc, char* argv[])
                     macDecision.action != CatraMacAction::NO_DATA_SEND_FLOW)
                 {
                     Ptr<Txop> txop = localDevice->GetMac()->GetTxop();
+                    const uint32_t cwBefore = txop->GetCw(0);
+                    const uint32_t minBefore = txop->GetMinCw(0);
+                    const uint32_t maxBefore = txop->GetMaxCw(0);
                     txop->SetMinCw(macDecision.ns3Cw, 0);
                     txop->SetMaxCw(macDecision.ns3Cw, 0);
+                    // This line proves CATRA control actually wrote the live MAC.
+                    // If you run --catra=on and never see [CATRA-CW-APPLIED],
+                    // the running binary is stale (rebuild) or control is off.
+                    std::cout << "[CATRA-CW-APPLIED] time_s=" << sample.periodEnd.GetSeconds()
+                              << " node=" << index
+                              << " cw_before_ns3=" << cwBefore
+                              << " min_before=" << minBefore << " max_before=" << maxBefore
+                              << " cw_after_ns3=" << txop->GetCw(0)
+                              << " min_after=" << txop->GetMinCw(0)
+                              << " max_after=" << txop->GetMaxCw(0)
+                              << " target_ns3=" << macDecision.ns3Cw << "\n";
                 }
                 std::ofstream output(stationCsvPath, std::ios::app);
                 output << std::fixed << std::setprecision(6) << sample.periodEnd.GetSeconds() << ','
