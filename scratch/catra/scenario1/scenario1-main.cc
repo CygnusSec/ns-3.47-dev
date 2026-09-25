@@ -414,10 +414,16 @@ main(int argc, char* argv[])
 {
     uint32_t stationCount{3};
     std::string mode{"topology"};
-    // Explicit CATRA on/off switch. Empty means "derive from mode" so existing
-    // command lines keep their behavior. "on" forces CATRA measurement over the
-    // baseline traffic; "off" forces the plain baseline with no CATRA at all.
+    // Explicit CATRA control switch. Empty means "derive from mode" so existing
+    // command lines keep their behavior. "on" enables CATRA control intent;
+    // "off" runs the plain baseline. Note: this switch is about applying CATRA
+    // control, not about whether MAC channel access is measured (see --measure).
     std::string catraSwitch;
+    // Independent switch for the passive Algorithm 1 channel-access measurement.
+    // Empty = measure whenever real TCP traffic exists (baseline or CATRA), so
+    // the per-station channel access is visible even without CATRA. "on"/"off"
+    // force it explicitly.
+    std::string measureSwitch;
     double spacingM{200.0};
     std::string distanceList;
     double txPowerDbm{16.0};
@@ -449,9 +455,12 @@ main(int argc, char* argv[])
     CommandLine cmd(__FILE__);
     cmd.AddValue("mode", "Scenario phase: topology, route-probe, baseline, or measure-only", mode);
     cmd.AddValue("catra",
-                 "Explicit CATRA switch: on (measure), off (plain baseline), or empty to follow "
-                 "mode",
+                 "CATRA control switch: on, off, or empty to follow mode",
                  catraSwitch);
+    cmd.AddValue("measure",
+                 "MAC channel-access measurement (Algorithm 1): on, off, or empty to measure "
+                 "whenever TCP traffic exists",
+                 measureSwitch);
     cmd.AddValue("n", "Number of stations in the Scenario 1 chain (3 through 6)", stationCount);
     cmd.AddValue("spacing", "Legacy uniform distance between adjacent stations", spacingM);
     cmd.AddValue("distances",
@@ -490,6 +499,8 @@ main(int argc, char* argv[])
                     "mode must be topology, route-probe, baseline, or measure-only");
     NS_ABORT_MSG_IF(catraSwitch != "" && catraSwitch != "on" && catraSwitch != "off",
                     "catra must be on, off, or empty");
+    NS_ABORT_MSG_IF(measureSwitch != "" && measureSwitch != "on" && measureSwitch != "off",
+                    "measure must be on, off, or empty");
     // The CATRA switch only makes sense once real TCP traffic exists. Reject it
     // in the topology-only and route-probe phases so the intent stays clear.
     NS_ABORT_MSG_IF(catraSwitch != "" && mode != "baseline" && mode != "measure-only",
@@ -517,27 +528,34 @@ main(int argc, char* argv[])
     RngSeedManager::SetRun(run);
 
     const bool routeProbeEnabled = mode == "route-probe";
-    // The explicit --catra switch, when set, overrides the CATRA state that the
-    // mode would otherwise imply. --catra=off runs the plain baseline (no CATRA
-    // measurement); --catra=on measures CATRA on top of the baseline traffic.
-    const bool measurementEnabled = catraSwitch == "on"    ? true
-                                    : catraSwitch == "off" ? false
-                                                           : mode == "measure-only";
-    const bool baselineEnabled = mode == "baseline" || mode == "measure-only" || measurementEnabled;
+    const bool baselineEnabled = mode == "baseline" || mode == "measure-only";
     const bool routesEnabled = routeProbeEnabled || baselineEnabled;
+    // CATRA *control* intent. --catra=on/off overrides the mode default. Control
+    // is not yet wired (catra_control stays false below), but the switch records
+    // the user's intent and is reported for clarity.
+    const bool catraControlEnabled = catraSwitch == "on"    ? true
+                                     : catraSwitch == "off" ? false
+                                                            : mode == "measure-only";
+    // Passive Algorithm 1 channel-access measurement. Decoupled from the CATRA
+    // control switch so per-station channel access is observed even without
+    // CATRA. Default: measure whenever real TCP traffic exists. --measure=off
+    // suppresses it; --measure=on forces it (still requires TCP traffic).
+    const bool measurementEnabled = measureSwitch == "on"    ? true
+                                    : measureSwitch == "off" ? false
+                                                             : baselineEnabled;
+    NS_ABORT_MSG_IF(measurementEnabled && !baselineEnabled,
+                    "measure=on requires mode=baseline or mode=measure-only");
     NS_ABORT_MSG_IF(enableContention && !baselineEnabled,
                     "enableContention requires baseline or measure-only mode");
     std::cout << "\n=== 1. Scenario 1 configuration ===\n"
               << "mode=" << mode
-              << " phase=" << (routeProbeEnabled   ? "static-route-validation"
-                                 : measurementEnabled ? "read-only-catra-measurement"
+              << " phase=" << (routeProbeEnabled ? "static-route-validation"
                                  : baselineEnabled ? "original-tcp-baseline"
                                                    : "topology-only")
-              << " catra="
-              << (measurementEnabled ? "measurement-only"
-                  : baselineEnabled  ? "disabled-baseline"
-                                     : "disabled")
-              << " catra_switch=" << (catraSwitch.empty() ? "follow-mode" : catraSwitch) << "\n"
+              << " channel_access_measurement=" << (measurementEnabled ? "on" : "off")
+              << " catra_control=" << (catraControlEnabled ? "on" : "off")
+              << " catra_switch=" << (catraSwitch.empty() ? "follow-mode" : catraSwitch)
+              << " measure_switch=" << (measureSwitch.empty() ? "auto" : measureSwitch) << "\n"
               << "stations=" << stationCount << " adjacent_distances_m=";
     for (uint32_t index = 0; index < adjacentDistancesM.size(); ++index)
     {
@@ -551,7 +569,8 @@ main(int argc, char* argv[])
               << " verbose_details=" << std::boolalpha << verboseDetails << "\n"
               << "[PHASE-BOUNDARY] routes_populated=" << routesEnabled
               << " udp=" << routeProbeEnabled << " tcp=" << baselineEnabled
-              << " catra_measurement=" << measurementEnabled << " catra_control=false"
+              << " catra_measurement=" << measurementEnabled
+              << " catra_control=" << catraControlEnabled << " catra_control_applied=false"
               << " extra_contention_load=" << enableContention
               << " cw_trace=" << traceCw << "\n";
 

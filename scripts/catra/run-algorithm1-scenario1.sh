@@ -11,17 +11,16 @@ ADJACENT_DISTANCE_SETS="${ADJACENT_DISTANCE_SETS:-200,250 250,200 200,200}"
 SIM_TIME="${SIM_TIME:-300}"
 EP="${EP:-2}"
 RUN="${RUN:-1}"
-# CATRA switch. "on" measures Algorithm 1 over the baseline traffic (measure-only
-# behavior). "off" runs the plain TCP baseline with no CATRA, to collect the
-# "without CATRA" results. Anything else follows the base MODE below.
+# CATRA control switch. "on" records CATRA control intent; "off" runs the plain
+# baseline. The MAC channel-access measurement (Algorithm 1) is now independent
+# of this switch, so per-station channel access is measured in BOTH cases.
 CATRA="${CATRA:-on}"
-# Base scenario mode. When CATRA=off we still need real TCP traffic, so the mode
-# defaults to baseline; when CATRA=on we default to measure-only.
-if [ "${CATRA}" = "off" ]; then
-  MODE="${MODE:-baseline}"
-else
-  MODE="${MODE:-measure-only}"
-fi
+# MAC channel-access measurement switch. Empty/"on" measures Algorithm 1 over the
+# TCP traffic; "off" collects throughput only. Default measures in both CATRA
+# on and off so you can compare channel access with and without CATRA.
+MEASURE="${MEASURE:-on}"
+# Base scenario mode always installs the two saturated TCP flows.
+MODE="${MODE:-baseline}"
 # Enable the additional saturated UDP contender to exercise DCF/BEB. Disable
 # it with ENABLE_CONTENTION=false to obtain the same Scenario 1 without that load.
 ENABLE_CONTENTION="${ENABLE_CONTENTION:-true}"
@@ -42,10 +41,11 @@ for STATION_COUNT in ${STATIONS}; do
     rm -f "${THROUGHPUT_CSV}" "${STATION_CSV}" "${CW_TRACE_CSV}"
 
     ./ns3 run \
-      "catra-scenario1 --mode=${MODE} --catra=${CATRA} --n=${STATION_COUNT} --distances=${DISTANCE_SET} --simTime=${SIM_TIME} --ep=${EP} --run=${RUN} --enableContention=${ENABLE_CONTENTION} --traceCw=${TRACE_CW} --verboseCw=${VERBOSE_CW} --strict=true --printTopology=false --csv=${THROUGHPUT_CSV} --stationCsv=${STATION_CSV} --cwTraceCsv=${CW_TRACE_CSV}" \
+      "catra-scenario1 --mode=${MODE} --catra=${CATRA} --measure=${MEASURE} --n=${STATION_COUNT} --distances=${DISTANCE_SET} --simTime=${SIM_TIME} --ep=${EP} --run=${RUN} --enableContention=${ENABLE_CONTENTION} --traceCw=${TRACE_CW} --verboseCw=${VERBOSE_CW} --strict=true --printTopology=false --csv=${THROUGHPUT_CSV} --stationCsv=${STATION_CSV} --cwTraceCsv=${CW_TRACE_CSV}" \
       --no-build
 
     echo "algorithm1_catra=${CATRA}"
+    echo "algorithm1_measure=${MEASURE}"
     echo "algorithm1_mode=${MODE}"
     echo "algorithm1_adjacent_distances_m=${DISTANCE_SET}"
     echo "algorithm1_extra_contention_load=${ENABLE_CONTENTION}"
