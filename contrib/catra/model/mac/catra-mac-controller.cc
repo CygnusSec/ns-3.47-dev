@@ -40,8 +40,8 @@ ToString(CatraMacAction action)
 {
     switch (action)
     {
-    case CatraMacAction::NO_SEND_FLOW:
-        return "NO_SEND_FLOW";
+    case CatraMacAction::NO_DATA_SEND_FLOW:
+        return "NO_DATA_SEND_FLOW_FBR_ZERO";
     case CatraMacAction::DECREASE_CW:
         return "DECREASE_CW";
     case CatraMacAction::KEEP_CW:

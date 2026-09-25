@@ -10,7 +10,7 @@ namespace ns3
 
 enum class CatraMacAction
 {
-    NO_SEND_FLOW,
+    NO_DATA_SEND_FLOW,
     DECREASE_CW,
     KEEP_CW,
     INCREASE_CW
@@ -18,7 +18,7 @@ enum class CatraMacAction
 
 struct CatraMacDecision
 {
-    CatraMacAction action{CatraMacAction::NO_SEND_FLOW};
+    CatraMacAction action{CatraMacAction::NO_DATA_SEND_FLOW};
     double ratio{};
     double rawWindowSlots{};
     uint32_t windowSlots{};

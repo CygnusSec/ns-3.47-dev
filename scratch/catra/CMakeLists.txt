@@ -17,6 +17,7 @@ build_exec(
                scenario1/baseline/scenario1-baseline.cc
                scenario1/baseline/tcp-tahoe.cc
                scenario1/catra/scenario1-catra.cc
+               scenario1/catra/scenario1-contention.cc
   LIBRARIES_TO_LINK "${ns3-libs}"
                     "${ns3-contrib-libs}"
                     "${libcatra}"

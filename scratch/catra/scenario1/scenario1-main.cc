@@ -12,6 +12,7 @@
 #include "baseline/scenario1-baseline.h"
 #include "baseline/tcp-tahoe.h"
 #include "catra/scenario1-catra.h"
+#include "catra/scenario1-contention.h"
 
 #include "ns3/applications-module.h"
 #include "ns3/catra-active-time-estimator.h"
@@ -427,11 +428,15 @@ main(int argc, char* argv[])
     bool printTopology{true};
     bool verboseDetails{true};
     bool enablePcap{false};
+    bool enableContention{false};
+    bool traceCw{false};
+    bool verboseCw{false};
     bool strict{true};
     double simulationTimeS{300.0};
     double trafficStartS{1.0};
     std::string csvPath{"results/catra/scenario1/tahoe-baseline.csv"};
     std::string stationCsvPath{"results/catra/scenario1/station-state.csv"};
+    std::string cwTraceCsvPath{"results/catra/scenario1/cw-events.csv"};
     double estimationPeriodS{2.0};
 
     // PHY defaults mirror the values accepted by catra-phy-range-probe.  They
@@ -456,11 +461,17 @@ main(int argc, char* argv[])
     cmd.AddValue("printTopology", "Print the full discovered ns-3 topology", printTopology);
     cmd.AddValue("verboseDetails", "Print tagged per-node setup details", verboseDetails);
     cmd.AddValue("enablePcap", "Enable per-device PCAP files", enablePcap);
+    cmd.AddValue("enableContention",
+                 "Add a saturated UDP MAC contender at the receiver",
+                 enableContention);
+    cmd.AddValue("traceCw", "Write every CW and backoff event to CSV", traceCw);
+    cmd.AddValue("verboseCw", "Print every CW and backoff event to stdout", verboseCw);
     cmd.AddValue("strict", "Return failure when a selected-phase invariant is violated", strict);
     cmd.AddValue("simTime", "Simulation stop time in seconds", simulationTimeS);
     cmd.AddValue("trafficStart", "TCP source start time in seconds", trafficStartS);
     cmd.AddValue("csv", "Baseline result CSV path", csvPath);
     cmd.AddValue("stationCsv", "CATRA station measurement CSV path", stationCsvPath);
+    cmd.AddValue("cwTraceCsv", "MAC CW/backoff trace CSV path", cwTraceCsvPath);
     cmd.AddValue("ep", "CATRA estimation period in seconds", estimationPeriodS);
     cmd.Parse(argc, argv);
 
@@ -495,6 +506,8 @@ main(int argc, char* argv[])
     const bool measurementEnabled = mode == "measure-only";
     const bool baselineEnabled = mode == "baseline" || measurementEnabled;
     const bool routesEnabled = routeProbeEnabled || baselineEnabled;
+    NS_ABORT_MSG_IF(enableContention && !baselineEnabled,
+                    "enableContention requires baseline or measure-only mode");
     std::cout << "\n=== 1. Scenario 1 configuration ===\n"
               << "mode=" << mode
               << " phase=" << (routeProbeEnabled   ? "static-route-validation"
@@ -515,7 +528,9 @@ main(int argc, char* argv[])
               << " verbose_details=" << std::boolalpha << verboseDetails << "\n"
               << "[PHASE-BOUNDARY] routes_populated=" << routesEnabled
               << " udp=" << routeProbeEnabled << " tcp=" << baselineEnabled
-              << " catra_measurement=" << measurementEnabled << " catra_control=false\n";
+              << " catra_measurement=" << measurementEnabled << " catra_control=false"
+              << " extra_contention_load=" << enableContention
+              << " cw_trace=" << traceCw << "\n";
 
     // Set non-unicast mode even though Phase 2 sends no frames.  This keeps the
     // installed Wi-Fi configuration identical to the validated Phase 1 PHY and
@@ -603,6 +618,34 @@ main(int argc, char* argv[])
               << " resolved_cw_max=" << referenceTxop->GetMaxCw(0)
               << " paper_window_min=" << referenceTxop->GetMinCw(0) + 1
               << " paper_window_max=" << referenceTxop->GetMaxCw(0) + 1 << "\n";
+
+    std::unique_ptr<Scenario1CwTraceLogger> cwTraceLogger;
+    if (traceCw)
+    {
+        cwTraceLogger = std::make_unique<Scenario1CwTraceLogger>(
+            cwTraceCsvPath, stationCount, verboseCw);
+        for (uint32_t index = 0; index < devices.GetN(); ++index)
+        {
+            Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice>(devices.Get(index));
+            Ptr<Txop> txop = device->GetMac()->GetTxop();
+            const Time slotTime = device->GetPhy()->GetSlot();
+            cwTraceLogger->ObserveCw(index, txop->GetCw(0), 0);
+            const bool cwConnected = txop->TraceConnectWithoutContext(
+                "CwTrace",
+                MakeBoundCallback(&ObserveScenario1Cw, cwTraceLogger.get(), index));
+            const bool backoffConnected = txop->TraceConnectWithoutContext(
+                "BackoffTrace",
+                MakeBoundCallback(&ObserveScenario1Backoff,
+                                  cwTraceLogger.get(),
+                                  index,
+                                  txop,
+                                  slotTime));
+            NS_ABORT_MSG_IF(!cwConnected || !backoffConnected,
+                            "Failed to connect CW/backoff trace for node " << index);
+        }
+        std::cout << "[CW-TRACE-CONFIG] enabled=true csv=" << cwTraceCsvPath
+                  << " verbose=" << verboseCw << "\n";
+    }
 
     std::vector<std::unique_ptr<CatraActiveTimeEstimator>> estimators;
     std::vector<std::unique_ptr<CatraMacTransactionTracker>> trackers;
@@ -771,6 +814,7 @@ main(int argc, char* argv[])
     Ptr<Ipv4FlowClassifier> flowClassifier;
     std::vector<uint64_t> flow2ForwardedByNode(stationCount, 0);
     Scenario1BaselineApplications baselineApplications;
+    ApplicationContainer contentionApplications;
     if (routeProbeEnabled)
     {
         std::cout << "\n=== 5. Install bidirectional UDP route probes ===\n";
@@ -789,6 +833,16 @@ main(int argc, char* argv[])
                   << " simulation_stop_s=" << simulationTimeS << "\n";
         baselineApplications = InstallScenario1Baseline(
             nodes, interfaces, trafficStartS, simulationTimeS);
+        if (enableContention)
+        {
+            contentionApplications = InstallScenario1ContentionTraffic(
+                nodes, interfaces, trafficStartS, simulationTimeS);
+        }
+        else
+        {
+            std::cout << "[CONTENTION-LOAD] enabled=false"
+                      << " note=original_tcp_flows_still_use_dcf\n";
+        }
         flowMonitor = flowMonitorHelper.InstallAll();
         flowClassifier = DynamicCast<Ipv4FlowClassifier>(flowMonitorHelper.GetClassifier());
         for (uint32_t index = 0; index < stationCount; ++index)
@@ -825,6 +879,11 @@ main(int argc, char* argv[])
     // PrintTopology is scheduled at simulation time zero. Running the event
     // queue materializes that report and, in route-probe mode, the UDP probes.
     Simulator::Run();
+
+    if (cwTraceLogger)
+    {
+        cwTraceLogger->PrintSummary();
+    }
 
     std::cout << "\n=== 8. Structural acceptance ===\n";
     const bool topologyPassed =

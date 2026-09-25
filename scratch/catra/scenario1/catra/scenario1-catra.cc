@@ -29,6 +29,9 @@ CalculateScenario1StationFlowCounts(uint32_t stationCount)
             counts.nCs = counts.nCs || separation == 2;
         }
         counts.nTotal = counts.nTx + counts.nCs;
+        // Paper Table 1 intentionally gives R nSEND=0, nTX=2, nCS=1.
+        // TCP ACK airtime contributes to measured RBR, but the paper explicitly
+        // excludes TCP ACK from competing SEND flows used in the FBR numerator.
         counts.fairBandwidthRatio = counts.nTotal == 0
                                         ? 0.0
                                         : static_cast<double>(counts.nSend) / counts.nTotal;

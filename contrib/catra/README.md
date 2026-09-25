@@ -26,3 +26,9 @@ remain under `scratch/catra/scenario1`.
 
 These boundaries prevent a read-only experiment from being mistaken for live
 CATRA control.
+
+Scenario 1 can additionally enable a controlled saturated UDP contender with
+`--enableContention=true`. This is experiment traffic rather than part of the
+shared CATRA algorithm. `--traceCw=true` records the native ns-3 `CwTrace` and
+`BackoffTrace` events, including BEB increases, success resets, random backoff
+slots, fixed slot time, and the resulting backoff duration.

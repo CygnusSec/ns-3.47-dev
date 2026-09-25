@@ -250,7 +250,11 @@ CW'_ns3 = CW'_slots - 1
 
 `current_CW` and `CW'` above are window cardinalities in slots; the `_ns3`
 columns are inclusive upper bounds used by ns-3. `decision` is
-`DECREASE_CW`, `INCREASE_CW`, `KEEP_CW`, or `NO_SEND_FLOW`. In
+`DECREASE_CW`, `INCREASE_CW`, `KEEP_CW`, or
+`NO_DATA_SEND_FLOW_FBR_ZERO`. The final value is expected for receiver `R` in
+paper Table 1: `nSEND=0`, `nTX=2`, `nCS=1`, `ntotal=3`, and `FBR=0`. TCP ACK
+airtime is measured for RBR, but TCP ACK is explicitly excluded from the
+paper's competing SEND-flow count. In
 `measure-only` mode this is a transparent preview: it does not write `CW'`
 back to `Txop` or alter baseline behavior. The paper does not specify integer
 rounding, so the CSV retains both the raw value and the explicit nearest-slot
