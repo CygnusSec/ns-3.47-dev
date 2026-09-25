@@ -15,6 +15,7 @@ build_exec(
   EXECNAME_PREFIX scratch_catra_scenario1_
   SOURCE_FILES scenario1/scenario1-main.cc
                scenario1/baseline/scenario1-baseline.cc
+               scenario1/baseline/scenario1-mac-hop-measurement.cc
                scenario1/baseline/tcp-tahoe.cc
                scenario1/catra/scenario1-catra.cc
                scenario1/catra/scenario1-contention.cc

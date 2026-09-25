@@ -18,17 +18,20 @@ remain under `scratch/catra/scenario1`.
 
 ## Current integration boundary
 
-- Algorithm 1 is integrated into Scenario 1 through `measure-only` mode.
-- The MAC controller calculates and logs `CW'`; it does not yet mutate `Txop`.
+- Algorithm 1 measurement is independently selectable with `--measure=on/off`.
+- `--catra=on` applies `CW'` as the adaptive `Txop` CWmin while retaining the
+  standard CWmax, so native DCF/BEB remains active.
 - The TCP controller implements and validates Algorithm 2 decisions; it is not
   yet connected to a live ns-3 TCP socket/recovery path.
-- `baseline` does not instantiate estimators or call either controller.
+- `--catra=off --measure=on` provides a read-only decision preview.
 
 These boundaries prevent a read-only experiment from being mistaken for live
 CATRA control.
 
-Scenario 1 can additionally enable a controlled saturated UDP contender with
-`--enableContention=true`. This is experiment traffic rather than part of the
-shared CATRA algorithm. `--traceCw=true` records the native ns-3 `CwTrace` and
+Scenario 1 uses `--trafficProfile=paper` for the paper's two TCP flows. The
+separate `--trafficProfile=tcp-stress` profile adds a saturated CatraTcpTahoe
+flow from R to S1 and includes it in the Algorithm 1 flow counts. This stress
+flow is experiment traffic rather than part of the paper scenario.
+`--traceCw=true` records the native ns-3 `CwTrace` and
 `BackoffTrace` events, including BEB increases, success resets, random backoff
-slots, fixed slot time, and the resulting backoff duration.
+slots, fixed slot time, CATRA EP updates, and the resulting backoff duration.

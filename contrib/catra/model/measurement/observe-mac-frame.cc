@@ -40,7 +40,10 @@ CalculateTransactionTiming(Ptr<WifiNetDevice> sender,
         receiverManager->GetAckTxVector(senderAddress, dataTxVector);
 
     CatraTransactionTiming timing;
-    timing.contentionWindow = senderMac->GetTxop()->GetCw(0);
+    // ns-3 stores CW as the inclusive upper bound [0, cw], whereas the paper
+    // uses the number of slots W. Keep all Algorithm 1 arithmetic in paper
+    // units: W = cw_ns3 + 1.
+    timing.contentionWindow = senderMac->GetTxop()->GetCw(0) + 1;
     timing.slotTime = senderPhy->GetSlot();
     timing.rtsTime =
         WifiPhy::CalculateTxDuration(GetRtsSize(), rtsTxVector, senderPhy->GetPhyBand());

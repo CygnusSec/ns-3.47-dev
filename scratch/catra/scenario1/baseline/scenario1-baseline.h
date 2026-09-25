@@ -18,11 +18,14 @@ namespace ns3
 {
 
 constexpr uint32_t SCENARIO1_TCP_PAYLOAD_BYTES = 1024;
+constexpr uint16_t SCENARIO1_FLOW1_PORT = 5001;
+constexpr uint16_t SCENARIO1_FLOW2_PORT = 5002;
 
 struct Scenario1BaselineApplications
 {
     Ptr<PacketSink> flow1Sink;
     Ptr<PacketSink> flow2Sink;
+    Ptr<PacketSink> tcpStressSink;
 };
 
 Scenario1BaselineApplications InstallScenario1Baseline(
@@ -55,8 +58,13 @@ bool WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applicat
                                    uint32_t stationCount,
                                    uint32_t seed,
                                    uint64_t run,
+                                   const std::string& trafficProfile,
+                                   bool catraEnabled,
+                                   bool measurementEnabled,
+                                   const std::string& adjacentDistances,
                                    double trafficStartS,
                                    double simulationTimeS,
+                                   double estimationPeriodS,
                                    const std::string& csvPath,
                                    const std::vector<uint64_t>& flow2ForwardedByNode,
                                    const std::vector<uint64_t>& flow1RxBytesByNode,
@@ -65,6 +73,7 @@ bool WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applicat
 bool ValidateScenario1Baseline(Ptr<FlowMonitor> monitor,
                                Ptr<Ipv4FlowClassifier> classifier,
                                uint32_t stationCount,
+                               bool tcpStressEnabled,
                                const std::vector<uint64_t>& flow2ForwardedByNode);
 
 } // namespace ns3
