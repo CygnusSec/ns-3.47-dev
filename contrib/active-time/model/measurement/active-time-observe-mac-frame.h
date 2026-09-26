@@ -2,11 +2,11 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#ifndef OBSERVE_MAC_FRAME_H
-#define OBSERVE_MAC_FRAME_H
+#ifndef ACTIVE_TIME_OBSERVE_MAC_FRAME_H
+#define ACTIVE_TIME_OBSERVE_MAC_FRAME_H
 
-#include "catra-active-time-estimator.h"
-#include "catra-mac-transaction-tracker.h"
+#include "active-time-estimator.h"
+#include "active-time-mac-transaction-tracker.h"
 
 #include "ns3/wifi-module.h"
 
@@ -36,4 +36,4 @@ void ObserveMacFrameTx(CatraActiveTimeEstimator* estimator,
 
 } // namespace ns3
 
-#endif // OBSERVE_MAC_FRAME_H
+#endif // ACTIVE_TIME_OBSERVE_MAC_FRAME_H

@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#ifndef CATRA_ACTIVE_TIME_ESTIMATOR_H
-#define CATRA_ACTIVE_TIME_ESTIMATOR_H
+#ifndef ACTIVE_TIME_ESTIMATOR_H
+#define ACTIVE_TIME_ESTIMATOR_H
 
 #include "ns3/nstime.h"
 #include <cstdint>
@@ -142,4 +142,4 @@ class CatraActiveTimeEstimator
 
 } // namespace ns3
 
-#endif // CATRA_ACTIVE_TIME_ESTIMATOR_H
+#endif // ACTIVE_TIME_ESTIMATOR_H

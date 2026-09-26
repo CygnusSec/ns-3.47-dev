@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "catra-mac-transaction-tracker.h"
+#include "active-time-mac-transaction-tracker.h"
 
 namespace ns3
 {

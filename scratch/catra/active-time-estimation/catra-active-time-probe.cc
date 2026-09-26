@@ -7,9 +7,9 @@
 // MonitorSnifferTx confirms that the local station actually transmits the MAC
 // ACK paired with a pending TCP-DATA frame. CW remains read-only.
 
-#include "ns3/catra-active-time-estimator.h"
-#include "ns3/catra-mac-transaction-tracker.h"
-#include "ns3/observe-mac-frame.h"
+#include "ns3/active-time-estimator.h"
+#include "ns3/active-time-mac-transaction-tracker.h"
+#include "ns3/active-time-observe-mac-frame.h"
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"

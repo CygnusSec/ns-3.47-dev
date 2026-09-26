@@ -14,9 +14,9 @@
 #include "tcp-tahoe.h"
 
 #include "ns3/applications-module.h"
-#include "ns3/catra-active-time-estimator.h"
-#include "ns3/catra-mac-transaction-tracker.h"
-#include "ns3/observe-mac-frame.h"
+#include "ns3/active-time-estimator.h"
+#include "ns3/active-time-mac-transaction-tracker.h"
+#include "ns3/active-time-observe-mac-frame.h"
 #ifdef NS3_CATRA_MODULE_ENABLED
 #include "ns3/catra-mac-controller.h"
 #endif

@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "catra-algorithm-packet.h"
+#include "active-time-algorithm-packet.h"
 
 #include "ns3/internet-module.h"
 #include "ns3/llc-snap-header.h"

@@ -2,10 +2,10 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#ifndef CATRA_MAC_TRANSACTION_TRACKER_H
-#define CATRA_MAC_TRANSACTION_TRACKER_H
+#ifndef ACTIVE_TIME_MAC_TRANSACTION_TRACKER_H
+#define ACTIVE_TIME_MAC_TRANSACTION_TRACKER_H
 
-#include "catra-active-time-estimator.h"
+#include "active-time-estimator.h"
 
 #include "ns3/mac48-address.h"
 
@@ -44,4 +44,4 @@ class CatraMacTransactionTracker
 
 } // namespace ns3
 
-#endif // CATRA_MAC_TRANSACTION_TRACKER_H
+#endif // ACTIVE_TIME_MAC_TRANSACTION_TRACKER_H

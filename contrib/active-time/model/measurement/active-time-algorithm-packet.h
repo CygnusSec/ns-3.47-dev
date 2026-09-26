@@ -2,10 +2,10 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#ifndef CATRA_ALGORITHM_PACKET_H
-#define CATRA_ALGORITHM_PACKET_H
+#ifndef ACTIVE_TIME_ALGORITHM_PACKET_H
+#define ACTIVE_TIME_ALGORITHM_PACKET_H
 
-#include "catra-active-time-estimator.h"
+#include "active-time-estimator.h"
 
 #include "ns3/mac48-address.h"
 #include "ns3/packet.h"
@@ -48,4 +48,4 @@ void ProcessAlgorithmPacket(CatraActiveTimeEstimator* estimator,
 
 } // namespace ns3
 
-#endif // CATRA_ALGORITHM_PACKET_H
+#endif // ACTIVE_TIME_ALGORITHM_PACKET_H

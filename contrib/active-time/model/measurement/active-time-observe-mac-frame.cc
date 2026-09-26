@@ -2,9 +2,9 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "observe-mac-frame.h"
+#include "active-time-observe-mac-frame.h"
 
-#include "catra-algorithm-packet.h"
+#include "active-time-algorithm-packet.h"
 
 namespace ns3
 {

@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "catra-active-time-estimator.h"
+#include "active-time-estimator.h"
 
 #include "ns3/assert.h"
 #include "ns3/simulator.h"
