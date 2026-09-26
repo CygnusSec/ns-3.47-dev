@@ -2,6 +2,7 @@
 # optional configure-time enhancement, not a separate executable or source
 # tree.
 set(scenario1_libraries
+    ${libactive-time}
     ${libapplications}
     ${libcore}
     ${libdebug-tools}

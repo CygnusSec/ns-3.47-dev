@@ -1,8 +1,9 @@
 # CATRA Scenario 1 — Kế hoạch thực hiện từng bước trên ns-3.47
 
 > Cập nhật kiến trúc: `scratch/scenario1/` chứa một executable Scenario 1 và
-> một TCP Tahoe dùng chung. CATRA chỉ được chọn bằng cấu hình module
-> `contrib/catra`. Các tên `baseline` và `measure-only` bên dưới là nhãn của
+> một TCP Tahoe và phép đo `Tactive/RBR` dùng chung từ `contrib/active-time`.
+> CATRA chỉ bổ sung controller qua cấu hình module `contrib/catra`. Các tên
+> `baseline` và `measure-only` bên dưới là nhãn của
 > các giai đoạn kiểm chứng cũ, không còn là folder hoặc runtime mode hiện tại.
 
 ## 1. Mục tiêu và phạm vi

@@ -10,7 +10,7 @@ build_exec(
   EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra
 )
 
-if(TARGET catra)
+if(TARGET active-time)
   build_exec(
     EXECNAME catra-active-time-probe
     # Match the target name inferred by ./ns3 for a main source stored in the
@@ -19,10 +19,12 @@ if(TARGET catra)
     SOURCE_FILES active-time-estimation/catra-active-time-probe.cc
     LIBRARIES_TO_LINK "${ns3-libs}"
                       "${ns3-contrib-libs}"
-                      "${libcatra}"
+                      "${libactive-time}"
     EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/active-time-estimation
   )
+endif()
 
+if(TARGET catra)
   build_exec(
     EXECNAME catra-tcp-controller-probe
     EXECNAME_PREFIX scratch_catra_tcp_rate_adaptation_
@@ -33,5 +35,5 @@ if(TARGET catra)
     EXECUTABLE_DIRECTORY_PATH ${CMAKE_OUTPUT_DIRECTORY}/scratch/catra/tcp_rate_adaptation
   )
 else()
-  message(STATUS "CATRA module disabled: CATRA probes skipped; common Scenario 1 remains available")
+  message(STATUS "CATRA module disabled: controller probe skipped; common active-time measurement and Scenario 1 remain available")
 endif()

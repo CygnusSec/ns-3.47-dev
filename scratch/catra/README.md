@@ -24,7 +24,7 @@ scratch/scenario1/
 ├── scenario1-cw-trace.cc/.h          # common DCF/BEB tracing
 ├── scenario1-mac-hop-measurement.cc/.h
 ├── tcp-tahoe.cc/.h                   # common Tahoe-compatible TCP
-└── CMakeLists.txt                     # optional link to libcatra
+└── CMakeLists.txt                     # libactive-time + optional libcatra
 
 scratch/catra/
 ├── active-time-estimation/
@@ -33,8 +33,10 @@ scratch/catra/
 │   └── catra-tcp-controller-probe.cc
 └── catra-phy-range-probe.cc
 
-contrib/catra/                         # shared by every CATRA scenario
-├── model/measurement/                # Algorithm 1 packet/airtime state
+contrib/active-time/                   # common passive Tactive/RBR measurement
+└── model/measurement/                # packet parsing and MAC ACK correlation
+
+contrib/catra/                         # optional CATRA controllers
 ├── model/mac/catra-mac-controller.*  # CW' decision, Equation (5)
 └── model/tcp/catra-tcp-controller.*  # Algorithm 2 decision core
 ```
@@ -504,16 +506,17 @@ singleton.
 ## Planned source ownership
 
 ```text
-scratch/catra/catra-phy-range-probe.cc   Phase 1 calibration executable
-scratch/scenario1/                        Common Scenario 1 simulation and Tahoe
-contrib/catra/model/measurement/          Shared Algorithm 1 measurement
-contrib/catra/model/mac/                  Shared MAC CW' decision
-contrib/catra/model/tcp/                  Shared Algorithm 2 decision
+scratch/catra/catra-phy-range-probe.cc    Phase 1 calibration executable
+scratch/scenario1/                         Common Scenario 1 simulation and Tahoe
+contrib/active-time/model/measurement/     Common passive Tactive/RBR measurement
+contrib/catra/model/mac/                   Optional MAC CW' decision
+contrib/catra/model/tcp/                   Optional Algorithm 2 decision
 ```
 
 Standalone experiment assembly stays in `scratch`. Reusable flow identity,
-airtime measurement, station state, MAC control, and TCP congestion control
-live in `contrib/catra`; scenario assembly remains under `scratch/scenario1`.
+airtime measurement and station state live in `contrib/active-time`; optional
+MAC and TCP controllers live in `contrib/catra`; scenario assembly remains
+under `scratch/scenario1`.
 
 ## Phase 0 completion record
 

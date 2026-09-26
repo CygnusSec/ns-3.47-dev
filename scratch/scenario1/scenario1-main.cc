@@ -3,8 +3,9 @@
  */
 
 // Scenario 1 owns one common topology, traffic model, Tahoe implementation and
-// measurement pipeline. The contributed CATRA module is an optional
-// configure-time enhancement that adds Algorithm 1 and adaptive CW control.
+// active-time measurement pipeline. The contributed CATRA module is an
+// optional configure-time enhancement that consumes Tactive/RBR and adds
+// adaptive CW control.
 
 #include "scenario1-cw-trace.h"
 #include "scenario1-mac-hop-measurement.h"
@@ -13,11 +14,11 @@
 #include "tcp-tahoe.h"
 
 #include "ns3/applications-module.h"
-#ifdef NS3_CATRA_MODULE_ENABLED
 #include "ns3/catra-active-time-estimator.h"
-#include "ns3/catra-mac-controller.h"
 #include "ns3/catra-mac-transaction-tracker.h"
 #include "ns3/observe-mac-frame.h"
+#ifdef NS3_CATRA_MODULE_ENABLED
+#include "ns3/catra-mac-controller.h"
 #endif
 #include "ns3/core-module.h"
 #include "ns3/flow-monitor-module.h"
@@ -481,10 +482,10 @@ main(int argc, char* argv[])
     cmd.AddValue("simTime", "Simulation stop time in seconds", simulationTimeS);
     cmd.AddValue("trafficStart", "TCP source start time in seconds", trafficStartS);
     cmd.AddValue("csv", "Scenario 1 throughput result CSV path", csvPath);
-    cmd.AddValue("stationCsv", "CATRA station measurement CSV path", stationCsvPath);
+    cmd.AddValue("stationCsv", "Active-time station measurement CSV path", stationCsvPath);
     cmd.AddValue("cwTraceCsv", "MAC CW/backoff trace CSV path", cwTraceCsvPath);
     cmd.AddValue("macHopCsv", "Per-hop MAC time-series CSV path", macHopCsvPath);
-    cmd.AddValue("ep", "CATRA estimation period in seconds", estimationPeriodS);
+    cmd.AddValue("ep", "Active-time estimation period in seconds", estimationPeriodS);
     cmd.AddValue("macHopInterval",
                  "Per-hop MAC measurement interval in seconds",
                  macHopIntervalS);
@@ -493,6 +494,7 @@ main(int argc, char* argv[])
     if (printBuildFeatures)
     {
         std::cout << "catra_module=" << (CATRA_MODULE_COMPILED ? "enabled" : "disabled")
+                  << "\nactive_time_measurement=enabled"
                   << "\n";
         return 0;
     }
@@ -551,7 +553,9 @@ main(int argc, char* argv[])
     // keeps the exact same TCP Tahoe simulation when the module is absent.
     const bool catraModuleEnabled = CATRA_MODULE_COMPILED;
     const bool catraControlEnabled = catraModuleEnabled && scenarioTrafficEnabled;
-    const bool measurementEnabled = catraControlEnabled;
+    // Tactive/RBR measurement is part of the common scenario. CATRA consumes
+    // those samples only when its optional controller module is compiled in.
+    const bool measurementEnabled = scenarioTrafficEnabled;
     NS_ABORT_MSG_IF(trafficProfile == "tcp-stress" && !scenarioTrafficEnabled,
                     "trafficProfile=tcp-stress requires mode=scenario1");
     const bool tcpStressEnabled = trafficProfile == "tcp-stress";
@@ -579,7 +583,7 @@ main(int argc, char* argv[])
               << " verbose_details=" << std::boolalpha << verboseDetails << "\n"
               << "[PHASE-BOUNDARY] routes_populated=" << routesEnabled
               << " udp=" << routeProbeEnabled << " tcp=" << scenarioTrafficEnabled
-              << " catra_measurement=" << measurementEnabled
+              << " active_time_measurement=" << measurementEnabled
               << " catra_control=" << catraControlEnabled
               << " catra_control_applied=" << (catraControlEnabled && measurementEnabled)
               << " tcp_stress_load=" << tcpStressEnabled
@@ -740,7 +744,6 @@ main(int argc, char* argv[])
     }
 
     bool measurementPassed = true;
-#ifdef NS3_CATRA_MODULE_ENABLED
     std::vector<std::unique_ptr<CatraActiveTimeEstimator>> estimators;
     std::vector<std::unique_ptr<CatraMacTransactionTracker>> trackers;
     std::map<Mac48Address, Ptr<WifiNetDevice>> devicesByAddress;
@@ -759,7 +762,7 @@ main(int argc, char* argv[])
         const std::string stationHeader =
             "traffic_profile,catra_enabled,measurement_enabled,seed,run,n,"
             "adjacent_distances_m,sim_time_s,ep_s,time,node,role,nSEND,nTX,nCS,ntotal,FBRS,"
-            "raw_active_s,smoothed_active_s,RBRS,packet_count,data_count,tcp_ack_count,"
+            "Tactive_raw_s,Tactive_s,RBRS,packet_count,data_count,tcp_ack_count,"
             "average_cw,expected_backoff_s,rts_s,cts_s,tcp_frame_s,mac_ack_s,interframe_s,"
             "cw_before_ns3,cw_before_slots,cw_min_before_ns3,cw_max_before_ns3,"
             "RBRS_over_FBRS,cw_prime_raw_slots,cw_prime_slots,cw_prime_ns3,decision,applied,"
@@ -783,14 +786,13 @@ main(int argc, char* argv[])
             Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice>(devices.Get(index));
             devicesByAddress.emplace(Mac48Address::ConvertFrom(device->GetAddress()), device);
         }
-        const std::string measurementTag{"[CATRA-STATION]"};
-        const std::string decisionMode{"module-applied"};
+        const std::string measurementTag{"[ACTIVE-TIME-STATION]"};
         for (uint32_t index = 0; index < devices.GetN(); ++index)
         {
             Ptr<WifiNetDevice> localDevice = DynamicCast<WifiNetDevice>(devices.Get(index));
             auto report =
-                [&, index, counts, localDevice, measurementTag, decisionMode, catraControlEnabled,
-                 standardCwMaxNs3](const CatraActiveTimeSample& sample) {
+                [&, index, counts, localDevice, measurementTag,
+                 catraControlEnabled](const CatraActiveTimeSample& sample) {
                 const auto& flowCounts = counts.at(index);
                 const uint64_t packetCount = sample.tcpDataPackets + sample.tcpAckPackets;
                 const bool valid = std::isfinite(sample.realBandwidthRatio) &&
@@ -800,13 +802,25 @@ main(int argc, char* argv[])
                 const uint32_t currentCwSlots = currentCwNs3 + 1;
                 const uint32_t minBefore = txop->GetMinCw(0);
                 const uint32_t maxBefore = txop->GetMaxCw(0);
+                measurementPassed = measurementPassed && valid;
+                bool applied = false;
+                std::string ratioCsv;
+                std::string rawWindowCsv;
+                std::string windowSlotsCsv;
+                std::string ns3CwCsv;
+                std::string decision{"CATRA_MODULE_DISABLED_MEASUREMENT_ONLY"};
+
+#ifdef NS3_CATRA_MODULE_ENABLED
                 const CatraMacDecision macDecision = CalculateCatraMacDecision(
                     currentCwNs3,
                     standardCwMaxNs3,
                     flowCounts.fairBandwidthRatio,
                     sample.realBandwidthRatio);
-                measurementPassed = measurementPassed && valid;
-                bool applied = false;
+                ratioCsv = std::to_string(macDecision.ratio);
+                rawWindowCsv = std::to_string(macDecision.rawWindowSlots);
+                windowSlotsCsv = std::to_string(macDecision.windowSlots);
+                ns3CwCsv = std::to_string(macDecision.ns3Cw);
+                decision = ToString(macDecision.action);
 
                 // CW' becomes the adaptive DCF base. CWmax stays at the 802.11
                 // value, so failures still invoke BEB and successes reset to CW'.
@@ -835,6 +849,7 @@ main(int argc, char* argv[])
                               << " max_after=" << txop->GetMaxCw(0)
                               << " target_ns3=" << macDecision.ns3Cw << "\n";
                 }
+#endif
                 const uint32_t cwAfter = txop->GetCw(0);
                 const uint32_t minAfter = txop->GetMinCw(0);
                 const uint32_t maxAfter = txop->GetMaxCw(0);
@@ -858,9 +873,8 @@ main(int argc, char* argv[])
                        << sample.macAckTime.GetSeconds() << ','
                        << sample.interframeTime.GetSeconds() << ',' << currentCwNs3 << ','
                        << currentCwSlots << ',' << minBefore << ',' << maxBefore << ','
-                       << macDecision.ratio << ','
-                       << macDecision.rawWindowSlots << ',' << macDecision.windowSlots << ','
-                       << macDecision.ns3Cw << ',' << ToString(macDecision.action) << ',' << applied
+                       << ratioCsv << ',' << rawWindowCsv << ',' << windowSlotsCsv << ','
+                       << ns3CwCsv << ',' << decision << ',' << applied
                        << ',' << cwAfter << ',' << minAfter << ',' << maxAfter << '\n';
                 std::cout << measurementTag << " time_s=" << sample.periodEnd.GetSeconds()
                           << " node=" << index << " role=" << GetNodeRole(index, stationCount)
@@ -869,20 +883,23 @@ main(int argc, char* argv[])
                           << " ntotal=" << flowCounts.nTotal
                           << " FBRS=" << flowCounts.fairBandwidthRatio
                           << " RBRS=" << sample.realBandwidthRatio
-                          << " raw_active_s=" << sample.rawActiveTime.GetSeconds()
-                          << " smoothed_active_s=" << sample.smoothedActiveTime.GetSeconds()
+                          << " Tactive_raw_s=" << sample.rawActiveTime.GetSeconds()
+                          << " Tactive_s=" << sample.smoothedActiveTime.GetSeconds()
                           << " packets=" << packetCount
                           << " data=" << sample.tcpDataPackets
                           << " tcp_ack=" << sample.tcpAckPackets
                           << " average_cw=" << sample.averageContentionWindow
                           << " current_cw_ns3=" << currentCwNs3
-                          << " current_cw_slots=" << currentCwSlots
-                          << " ratio_RBRS_FBRS=" << macDecision.ratio
+                          << " current_cw_slots=" << currentCwSlots;
+#ifdef NS3_CATRA_MODULE_ENABLED
+                std::cout << " ratio_RBRS_FBRS=" << macDecision.ratio
                           << " cw_prime_raw_slots=" << macDecision.rawWindowSlots
                           << " cw_prime_slots=" << macDecision.windowSlots
-                          << " cw_prime_ns3=" << macDecision.ns3Cw
-                          << " decision=" << ToString(macDecision.action)
-                          << " decision_mode=" << decisionMode
+                          << " cw_prime_ns3=" << macDecision.ns3Cw;
+#endif
+                std::cout << " decision=" << decision
+                          << " decision_mode="
+                          << (catraControlEnabled ? "catra-module" : "measurement-only")
                           << " applied=" << applied << " cw_after_ns3=" << cwAfter
                           << " min_after=" << minAfter << " max_after=" << maxAfter
                           << " validation=" << (valid ? "PASS" : "FAIL") << "\n";
@@ -908,7 +925,6 @@ main(int argc, char* argv[])
             trackers.push_back(std::move(tracker));
         }
     }
-#endif
 
     if (verboseDetails)
     {
@@ -1094,7 +1110,6 @@ main(int argc, char* argv[])
              stationCount,
              tcpStressEnabled,
              flow2ForwardedByNode));
-#ifdef NS3_CATRA_MODULE_ENABLED
     if (measurementEnabled)
     {
         bool observed = false;
@@ -1104,10 +1119,9 @@ main(int argc, char* argv[])
                        estimator->GetTotalTcpAckPackets() > 0;
         }
         measurementPassed = measurementPassed && observed;
-        std::cout << "catra_measurement_overall="
+        std::cout << "active_time_measurement_overall="
                   << (measurementPassed ? "PASS" : "FAIL") << "\n";
     }
-#endif
     const bool overallPassed =
         topologyPassed && routeProbePassed && trafficPassed && measurementPassed;
     std::cout << "scenario_overall="

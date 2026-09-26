@@ -61,11 +61,7 @@ for STATION_COUNT in ${STATIONS}; do
     echo "scenario1_mode=${MODE}"
     echo "scenario1_adjacent_distances_m=${DISTANCE_SET}"
     echo "scenario1_traffic_profile=${TRAFFIC_PROFILE}"
-    if [[ "${CATRA_MODULE_STATUS}" == "enabled" ]]; then
-      echo "scenario1_station_csv=${STATION_CSV}"
-    else
-      echo "scenario1_station_csv=not-created-catra-module-disabled"
-    fi
+    echo "scenario1_station_csv=${STATION_CSV}"
     echo "scenario1_throughput_csv=${THROUGHPUT_CSV}"
     echo "scenario1_cw_trace_csv=${CW_TRACE_CSV}"
     echo "scenario1_mac_hop_interval_s=${MAC_HOP_INTERVAL}"

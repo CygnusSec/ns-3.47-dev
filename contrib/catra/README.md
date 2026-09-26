@@ -1,14 +1,13 @@
 # CATRA shared module
 
-This ns-3 module contains CATRA logic that is independent of a concrete
-scenario. A scenario opts in by linking `${libcatra}` and creating the required
-measurement/controller objects. The common Scenario 1 simulation remains
-available with exactly the same TCP Tahoe traffic when this module is disabled.
+This ns-3 module contains CATRA controller logic that is independent of a
+concrete scenario. A scenario opts in by linking `${libcatra}`. Passive
+`Tactive/RBR` measurement is owned by the separate common `${libactive-time}`
+module, so it remains available when CATRA is disabled.
 
 ## Ownership
 
 ```text
-model/measurement/  Algorithm 1 packet parsing, MAC ACK correlation and active time
 model/mac/          Equation (5) CW' decision and ns-3 CW representation mapping
 model/tcp/          Algorithm 2 side-effect-free TCP cwnd/delay decision
 ```
@@ -18,12 +17,13 @@ remain under `scratch/scenario1`.
 
 ## Current integration boundary
 
-- With the CATRA module enabled, Scenario 1 TCP phases run Algorithm 1 because
-  it supplies the RBR input for CATRA CW control, then apply `CW'` as adaptive
-  `Txop` CWmin while retaining the standard CWmax so native DCF/BEB remains
-  active.
-- With the CATRA module disabled, the same Scenario 1 target runs its TCP Tahoe
-  flows without Algorithm 1 measurement and without changing CWmin.
+- Scenario 1 always runs the common active-time estimator and writes
+  `Tactive/RBR` station-state results.
+- With the CATRA module enabled, its MAC controller consumes those common
+  samples and applies `CW'` as adaptive `Txop` CWmin while retaining the
+  standard CWmax so native DCF/BEB remains active.
+- With the CATRA module disabled, measurement is unchanged but no `CW'`
+  decision is calculated or applied, and CWmin remains under native DCF.
 - The TCP controller implements and validates Algorithm 2 decisions; it is not
   yet connected to a live ns-3 TCP socket/recovery path.
 - CATRA availability is a configure-time ns-3 module decision, not a runtime
@@ -52,7 +52,7 @@ For an intentionally reduced build, list every Scenario 1 dependency:
 
 ```bash
 ./ns3 configure \
-  --enable-modules=catra,applications,debug-tools,flow-monitor,internet,mobility,network,propagation,wifi \
+  --enable-modules=active-time,catra,applications,debug-tools,flow-monitor,internet,mobility,network,propagation,wifi \
   --disable-modules=
 ```
 
@@ -69,11 +69,12 @@ enabled and disabled states.
 
 The `scenario1` executable is registered in both configurations. Without the
 module it reports `catra_module=disabled`, runs the common TCP traffic,
-and still produces throughput, CW/backoff and per-hop MAC output; it does not
-create the CATRA station-state CSV. With the module it reports
-`catra_module=enabled` and automatically adds Algorithm 1 plus CW control.
-The module-only `catra-active-time-probe` and `catra-tcp-controller-probe`
-targets are not registered while CATRA is disabled.
+and still produces throughput, CW/backoff, per-hop MAC and active-time
+station-state output. With the module it reports `catra_module=enabled` and
+additionally calculates and applies CATRA CW control.
+The `catra-active-time-probe` uses the common `active-time` measurement module,
+while the module-only `catra-tcp-controller-probe` target is not registered
+while CATRA is disabled.
 
 The same runner works in either configuration:
 
