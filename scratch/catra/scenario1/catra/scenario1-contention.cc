@@ -17,8 +17,8 @@ namespace ns3
 namespace
 {
 
-constexpr uint16_t CONTENTION_PORT = 9100;
-constexpr uint32_t CONTENTION_PACKET_BYTES = 1000;
+constexpr uint16_t CONTENTION_PORT = SCENARIO1_TCP_STRESS_PORT;
+constexpr uint32_t CONTENTION_PACKET_BYTES = 1024;
 
 } // namespace
 
@@ -31,7 +31,10 @@ Scenario1CwTraceLogger::Scenario1CwTraceLogger(const std::string& csvPath,
       m_increaseCount(stationCount, 0),
       m_resetCount(stationCount, 0),
       m_backoffCount(stationCount, 0),
-      m_maxObservedCw(stationCount, 0)
+      m_catraUpdateCount(stationCount, 0),
+      m_maxObservedCw(stationCount, 0),
+      m_cwObserved(stationCount, false),
+      m_catraUpdatePending(stationCount, false)
 {
     const std::filesystem::path outputPath(csvPath);
     if (!outputPath.parent_path().empty())
@@ -40,36 +43,48 @@ Scenario1CwTraceLogger::Scenario1CwTraceLogger(const std::string& csvPath,
     }
     m_csv.open(csvPath, std::ios::trunc);
     NS_ABORT_MSG_IF(!m_csv, "Cannot open CW trace CSV: " << csvPath);
-    m_csv << "time_s,node,event,previous_cw_ns3,cw_ns3,cw_slots,backoff_slots,"
-             "slot_time_us,backoff_time_us,reason\n";
+    m_csv << "time_s,node,event,source,previous_cw_ns3,cw_ns3,cw_slots,cw_min_ns3,"
+             "cw_max_ns3,backoff_slots,slot_time_us,backoff_time_us,reason\n";
 }
 
 void
-Scenario1CwTraceLogger::ObserveCw(uint32_t nodeIndex, uint32_t cw, uint8_t)
+Scenario1CwTraceLogger::ObserveCw(uint32_t nodeIndex, Ptr<Txop> txop, uint32_t cw, uint8_t)
 {
     const uint32_t previous = m_lastCw.at(nodeIndex);
     std::string reason{"INITIAL_OR_UNCHANGED"};
-    if (previous > 0 && cw > previous)
+    std::string source{"DCF"};
+    if (!m_cwObserved.at(nodeIndex))
     {
-        reason = "BEB_INCREASE_AFTER_FAILURE";
+        m_cwObserved.at(nodeIndex) = true;
+    }
+    else if (m_catraUpdatePending.at(nodeIndex))
+    {
+        source = "CATRA";
+        reason = "CATRA_EP_UPDATE";
+        ++m_catraUpdateCount.at(nodeIndex);
+    }
+    else if (cw > previous)
+    {
+        reason = "DCF_BEB_INCREASE_AFTER_FAILURE";
         ++m_increaseCount.at(nodeIndex);
     }
-    else if (previous > 0 && cw < previous)
+    else if (cw < previous)
     {
-        reason = "RESET_AFTER_SUCCESS";
+        reason = "DCF_RESET_AFTER_SUCCESS";
         ++m_resetCount.at(nodeIndex);
     }
     m_lastCw.at(nodeIndex) = cw;
     m_maxObservedCw.at(nodeIndex) = std::max(m_maxObservedCw.at(nodeIndex), cw);
 
     m_csv << std::fixed << std::setprecision(9) << Simulator::Now().GetSeconds() << ','
-          << nodeIndex << ",CW," << previous << ',' << cw << ',' << cw + 1
-          << ",,,," << reason << '\n';
+          << nodeIndex << ",CW," << source << ',' << previous << ',' << cw << ',' << cw + 1
+          << ',' << txop->GetMinCw(0) << ',' << txop->GetMaxCw(0) << ",,,," << reason << '\n';
     if (m_verbose)
     {
         std::cout << "[CW-TRACE] time_s=" << Simulator::Now().GetSeconds()
                   << " node=" << nodeIndex << " previous_cw_ns3=" << previous
                   << " cw_ns3=" << cw << " cw_slots=" << cw + 1
+                  << " source=" << source
                   << " reason=" << reason << "\n";
     }
 }
@@ -86,8 +101,9 @@ Scenario1CwTraceLogger::ObserveBackoff(uint32_t nodeIndex,
     ++m_backoffCount.at(nodeIndex);
     m_maxObservedCw.at(nodeIndex) = std::max(m_maxObservedCw.at(nodeIndex), cw);
     m_csv << std::fixed << std::setprecision(9) << Simulator::Now().GetSeconds() << ','
-          << nodeIndex << ",BACKOFF," << m_lastCw.at(nodeIndex) << ',' << cw << ',' << cw + 1
-          << ',' << selectedSlots << ',' << slotTime.GetMicroSeconds() << ',' << backoffTimeUs
+          << nodeIndex << ",BACKOFF,DCF," << m_lastCw.at(nodeIndex) << ',' << cw << ',' << cw + 1
+          << ',' << txop->GetMinCw(0) << ',' << txop->GetMaxCw(0) << ',' << selectedSlots << ','
+          << slotTime.GetMicroSeconds() << ',' << backoffTimeUs
           << ",UNIFORM_INTEGER_0_TO_CW\n";
     if (m_verbose)
     {
@@ -100,6 +116,18 @@ Scenario1CwTraceLogger::ObserveBackoff(uint32_t nodeIndex,
 }
 
 void
+Scenario1CwTraceLogger::BeginCatraUpdate(uint32_t nodeIndex)
+{
+    m_catraUpdatePending.at(nodeIndex) = true;
+}
+
+void
+Scenario1CwTraceLogger::EndCatraUpdate(uint32_t nodeIndex)
+{
+    m_catraUpdatePending.at(nodeIndex) = false;
+}
+
+void
 Scenario1CwTraceLogger::PrintSummary() const
 {
     for (uint32_t nodeIndex = 0; nodeIndex < m_lastCw.size(); ++nodeIndex)
@@ -108,6 +136,7 @@ Scenario1CwTraceLogger::PrintSummary() const
                   << " backoff_draws=" << m_backoffCount.at(nodeIndex)
                   << " beb_increases=" << m_increaseCount.at(nodeIndex)
                   << " success_resets=" << m_resetCount.at(nodeIndex)
+                  << " catra_updates=" << m_catraUpdateCount.at(nodeIndex)
                   << " max_cw_ns3=" << m_maxObservedCw.at(nodeIndex)
                   << " max_cw_slots=" << m_maxObservedCw.at(nodeIndex) + 1 << "\n";
     }
@@ -117,10 +146,11 @@ Scenario1CwTraceLogger::PrintSummary() const
 void
 ObserveScenario1Cw(Scenario1CwTraceLogger* logger,
                    uint32_t nodeIndex,
+                   Ptr<Txop> txop,
                    uint32_t cw,
                    uint8_t linkId)
 {
-    logger->ObserveCw(nodeIndex, cw, linkId);
+    logger->ObserveCw(nodeIndex, txop, cw, linkId);
 }
 
 void
@@ -134,35 +164,35 @@ ObserveScenario1Backoff(Scenario1CwTraceLogger* logger,
     logger->ObserveBackoff(nodeIndex, txop, slotTime, selectedSlots, linkId);
 }
 
-ApplicationContainer
-InstallScenario1ContentionTraffic(const NodeContainer& nodes,
-                                  const Ipv4InterfaceContainer& interfaces,
-                                  double trafficStartS,
-                                  double simulationTimeS)
+Ptr<PacketSink>
+InstallScenario1TcpStressTraffic(const NodeContainer& nodes,
+                                 const Ipv4InterfaceContainer& interfaces,
+                                 double trafficStartS,
+                                 double simulationTimeS)
 {
     const uint32_t targetIndex = nodes.GetN() - 2;
     const uint32_t contenderIndex = nodes.GetN() - 1;
 
-    PacketSinkHelper sink("ns3::UdpSocketFactory",
+    PacketSinkHelper sink("ns3::TcpSocketFactory",
                           InetSocketAddress(Ipv4Address::GetAny(), CONTENTION_PORT));
-    ApplicationContainer applications = sink.Install(nodes.Get(targetIndex));
+    ApplicationContainer sinkApplications = sink.Install(nodes.Get(targetIndex));
+    sinkApplications.Start(Seconds(0.5));
+    sinkApplications.Stop(Seconds(simulationTimeS));
 
-    OnOffHelper contender(
-        "ns3::UdpSocketFactory",
-        InetSocketAddress(interfaces.GetAddress(targetIndex), CONTENTION_PORT));
-    contender.SetAttribute("DataRate", DataRateValue(DataRate("11Mbps")));
-    contender.SetAttribute("PacketSize", UintegerValue(CONTENTION_PACKET_BYTES));
-    contender.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
-    contender.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
-    applications.Add(contender.Install(nodes.Get(contenderIndex)));
-    applications.Start(Seconds(trafficStartS + 0.1));
-    applications.Stop(Seconds(simulationTimeS));
+    BulkSendHelper contender("ns3::TcpSocketFactory",
+                             InetSocketAddress(interfaces.GetAddress(targetIndex), CONTENTION_PORT));
+    contender.SetAttribute("MaxBytes", UintegerValue(0));
+    contender.SetAttribute("SendSize", UintegerValue(CONTENTION_PACKET_BYTES));
+    ApplicationContainer sourceApplications = contender.Install(nodes.Get(contenderIndex));
+    sourceApplications.Start(Seconds(trafficStartS + 0.1));
+    sourceApplications.Stop(Seconds(simulationTimeS));
 
     std::cout << "[CONTENTION-LOAD] enabled=true source_node=" << contenderIndex
-              << " target_node=" << targetIndex << " protocol=UDP offered_rate=11Mbps"
+              << " target_node=" << targetIndex << " direction=R->S1 protocol=TCP"
+              << " offered_rate=saturated"
               << " packet_bytes=" << CONTENTION_PACKET_BYTES
               << " start_s=" << trafficStartS + 0.1 << " stop_s=" << simulationTimeS << "\n";
-    return applications;
+    return DynamicCast<PacketSink>(sinkApplications.Get(0));
 }
 
 } // namespace ns3

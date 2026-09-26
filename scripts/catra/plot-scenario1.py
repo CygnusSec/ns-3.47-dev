@@ -22,24 +22,26 @@ def parse_args():
         description="Plot Scenario 1 Flow 1, Flow 2, and paper Total approximation."
     )
     parser.add_argument("csv_file")
-    parser.add_argument("--mode", default="baseline")
-    parser.add_argument("--tcp", default="TcpTahoe")
+    parser.add_argument("--traffic-profile", default="paper")
+    parser.add_argument("--tcp", default="CatraTcpTahoe")
     parser.add_argument("--width", type=int, default=120)
     parser.add_argument("--height", type=int, default=32)
     return parser.parse_args()
 
 
-def load_means(path, mode, tcp):
+def load_means(path, traffic_profile, tcp):
     grouped = defaultdict(lambda: defaultdict(list))
     with open(path, newline="", encoding="utf-8") as stream:
         for row in csv.DictReader(stream):
-            if row["mode"] != mode or row["tcp"] != tcp:
+            if row["traffic_profile"] != traffic_profile or row["tcp"] != tcp:
                 continue
             station_count = int(row["n"])
             for field in ("flow1_mbps", "flow2_mbps", "paper_total_approx_mbps"):
                 grouped[station_count][field].append(float(row[field]))
     if not grouped:
-        raise ValueError(f"No rows with mode={mode!r} and tcp={tcp!r} in {path}")
+        raise ValueError(
+            f"No rows with traffic_profile={traffic_profile!r} and tcp={tcp!r} in {path}"
+        )
     return {
         station_count: {
             field: statistics.fmean(values) for field, values in fields.items()
@@ -51,7 +53,7 @@ def load_means(path, mode, tcp):
 def main():
     args = parse_args()
     try:
-        results = load_means(args.csv_file, args.mode, args.tcp)
+        results = load_means(args.csv_file, args.traffic_profile, args.tcp)
     except (OSError, KeyError, ValueError) as error:
         print(f"Cannot plot Scenario 1: {error}", file=sys.stderr)
         return 1
@@ -61,7 +63,7 @@ def main():
     figure.theme("dark")
     figure.plot_size(args.width, args.height)
     figure.title(
-        f"CATRA Scenario 1 ({args.mode}, {args.tcp}): long-hop vs short-hop throughput"
+        f"CATRA Scenario 1 ({args.traffic_profile}, {args.tcp}): long-hop vs short-hop throughput"
     )
     figure.label("Number of stations (n)", axis=0)
     figure.label("Goodput (Mbps)", axis=1)
