@@ -1,4 +1,4 @@
-# CATRA Scenario 1: ns-3.47 Assumptions and Configuration Contract
+# Scenario 1 and CATRA: ns-3.47 Assumptions and Configuration Contract
 
 ## Purpose
 
@@ -13,18 +13,20 @@ must not be presented as a value taken from the paper.
 
 ## Directory layout
 
-All standalone CATRA work is grouped below one project directory so future
-research scenarios can use separate sibling directories under `scratch`:
+Scenario 1 is a common simulation, independent of whether the optional CATRA
+module is enabled. CATRA probes remain grouped separately:
 
 ```text
+scratch/scenario1/
+├── scenario1-main.cc                 # common CLI and orchestration
+├── scenario1-traffic.cc/.h           # Flow1, Flow2, optional TCP stress
+├── scenario1-radio.cc/.h             # radio relationships and flow counts
+├── scenario1-cw-trace.cc/.h          # common DCF/BEB tracing
+├── scenario1-mac-hop-measurement.cc/.h
+├── tcp-tahoe.cc/.h                   # common Tahoe-compatible TCP
+└── CMakeLists.txt                     # optional link to libcatra
+
 scratch/catra/
-├── scenario1/
-│   ├── scenario1-main.cc             # CLI, topology and mode selection
-│   ├── baseline/                     # no-CATRA traffic, forwarding and Tahoe
-│   │   ├── scenario1-baseline.cc/.h
-│   │   └── tcp-tahoe.cc/.h
-│   └── catra/                        # Scenario 1 route-to-FBR adapter
-│       └── scenario1-catra.cc/.h
 ├── active-time-estimation/
 │   └── catra-active-time-probe.cc
 ├── tcp_rate_adaptation/
@@ -81,7 +83,7 @@ Passing a later phase does not waive an earlier acceptance gate.
 
 ### Phase 2 topology record
 
-`scratch/catra/scenario1/scenario1-main.cc` now builds the topology-only baseline. It installs
+`scratch/scenario1/scenario1-main.cc` also provides a topology-only probe. It installs
 the calibrated shared 802.11b ad-hoc channel, constant positions, one Wi-Fi
 device and IPv4 address per station, and the static-routing implementation
 without populating destination-specific routes.
@@ -101,7 +103,7 @@ Phase 3 owns static host-route population and bidirectional UDP validation.
 
 ### Phase 3 n=3 implementation record (runtime validated)
 
-`catra-scenario1` now accepts `--mode=route-probe`. The mode installs explicit
+`scenario1` accepts `--mode=route-probe`. The mode installs explicit
 `/32` routes toward `R` through the next station on the right and explicit
 reverse routes toward `S2` through the next station on the left. Three small
 UDP probes exercise:
@@ -123,25 +125,25 @@ does not install applications or populated host routes. The `n=3` route probe
 passed all delivery and hop-count checks on 2026-09-22. Re-run it with:
 
 ```bash
-docker compose exec -T ns3 ./ns3 build catra-scenario1 -j 2
+docker compose exec -T ns3 ./ns3 build scenario1 -j 2
 docker compose exec -T ns3 ./ns3 run \
-  "catra-scenario1 --mode=route-probe --n=3 --strict=true --printTopology=false" \
+  "scenario1 --mode=route-probe --n=3 --strict=true --printTopology=false" \
   --no-build
 ```
 
 The validated run reported both `route_probe_overall=PASS` and
 `scenario_overall=PASS`.
 
-### Phase 4 n=3 baseline implementation record (runtime validated)
+### Phase 4 n=3 TCP implementation record (runtime validated)
 
-`--mode=baseline` installs both saturated flows, two receiver sinks, the same
-deterministic routes used by the probe, and the local `CatraTcpTahoe` port. It
+`--mode=scenario1` installs both saturated flows, two receiver sinks, the same
+deterministic routes used by the probe, and the local `Scenario1TcpTahoe` port. It
 uses Reno slow start/congestion avoidance, disables SACK, and replaces fast
 recovery with Tahoe's loss response (`cwnd = 1 MSS`, then slow start). The
 default run lasts 300 s; both sources start at 1 s.
 
 The executable prints per-flow goodput and appends one row to
-`results/catra/scenario1/tahoe-baseline.csv`. `paper_total_approx_mbps` is Equation
+`results/scenario1/scenario1-throughput.csv`. `paper_total_approx_mbps` is Equation
 (17)'s approximation, not a direct measurement of channel payload throughput.
 
 Run the complete current `n=3` gate and terminal chart with:
@@ -165,7 +167,7 @@ baseline. A full 300 s Tahoe run on 2026-09-22 reported
 `scenario_overall=PASS` with Flow 1 = 1.554453 Mbps, Flow 2 = 0.881722 Mbps,
 and the paper Equation (17) approximation = 3.317897 Mbps for seed/run 1/1.
 FlowMonitor independently confirmed the one-hop and two-hop paths. A smoke run
-with `NS_LOG=CatraTcpTahoe=level_info` also observed loss responses resetting
+with `NS_LOG=Scenario1TcpTahoe=level_info` also observed loss responses resetting
 the congestion window to one 1024-byte MSS.
 
 ### Algorithm 1 active-time measurement record
@@ -212,22 +214,12 @@ Both observations are assembled into `CatraAlgorithmPacket p`, and
 then `ACK && TCPDATA`, otherwise `DATA && TCPACK`. No extra classifier condition
 is inserted between those tests and the active-time accumulator.
 
-`RBRs = TActive / EP` is reported for the later CATRA stages. The standalone
-probe does not derive flow counts; Scenario 1's `measure-only` mode adds those
-topology-specific counts. CW adaptation and CATRA TCP control remain later
-work and must not be inferred from either measurement path.
-
-The same read-only implementation is now integrated into Scenario 1 through
-`--mode=measure-only`. Every station owns a separate estimator and MAC
-transaction tracker. The fixed Scenario 1 route model derives `nSEND`, `nTX`,
-the boolean hidden-flow contribution `nCS`, `ntotal`, and `FBRs`; every EP is
-written to `station-state.csv`. For the paper's three-node example, runtime
-validation reports S2 `(1,3,0,3,1/3)`, S1 `(2,3,0,3,2/3)`, and R
-`(0,2,1,3,0)` for `(nSEND,nTX,nCS,ntotal,FBRs)`.
-
-This mode has no CW or TCP control side effects. CATRA MAC, per-flow runtime
-state, and live TCP control remain unimplemented until the source mappings
-below are complete.
+`RBRs = TActive / EP` is reported by the standalone probe. In the common
+Scenario 1 executable, enabling the CATRA module creates one estimator and MAC
+transaction tracker per station, derives `nSEND`, `nTX`, `nCS`, `ntotal` and
+`FBRs`, writes `station-state.csv`, and applies the resulting CW'. Disabling
+the module leaves the same topology, routes, TCP Tahoe flows and common output
+pipeline intact without constructing those CATRA objects.
 
 Run the Scenario 1 Algorithm 1 time series with:
 
@@ -239,7 +231,7 @@ scripts/catra/run-algorithm1-scenario1.sh
 `STATIONS="3 4 5 6"` runs the complete Scenario 1 station-count matrix. The
 station CSV includes `RBRs`, raw/smoothed active time, packet composition,
 average observed CW, and every transaction-time component for each EP. It also
-prints the read-only CATRA CW candidate:
+prints the CATRA CW decision:
 
 ```text
 ratio = RBRs / FBRs
@@ -254,11 +246,9 @@ columns are inclusive upper bounds used by ns-3. `decision` is
 `NO_DATA_SEND_FLOW_FBR_ZERO`. The final value is expected for receiver `R` in
 paper Table 1: `nSEND=0`, `nTX=2`, `nCS=1`, `ntotal=3`, and `FBR=0`. TCP ACK
 airtime is measured for RBR, but TCP ACK is explicitly excluded from the
-paper's competing SEND-flow count. In
-`measure-only` mode this is a transparent preview: it does not write `CW'`
-back to `Txop` or alter baseline behavior. The paper does not specify integer
-rounding, so the CSV retains both the raw value and the explicit nearest-slot
-porting choice.
+paper's competing SEND-flow count. The paper does not specify integer rounding,
+so the CSV retains both the raw value and the explicit nearest-slot porting
+choice.
 
 ### Algorithm 2 decision implementation
 
@@ -394,12 +384,12 @@ one subnet. They prevent a distant destination from being treated as a directly
 reachable Wi-Fi neighbor. Phase 3 must prove both directions one hop at a time
 before TCP is installed.
 
-## Original TCP baseline contract
+## Common TCP Tahoe contract
 
 | Item | Value | Status | Notes |
 |---|---:|---|---|
 | Paper TCP | Tahoe | `PAPER` | Required by Scenario 1 |
-| Baseline TCP | `CatraTcpTahoe` | `PORT` | Reno growth rules plus Tahoe one-MSS loss recovery; SACK disabled |
+| Scenario TCP | `Scenario1TcpTahoe` | `PORT` | Reno growth rules plus Tahoe one-MSS loss recovery; SACK disabled |
 | Application | `BulkSendApplication` | `PORT` | Saturated transfer with `MaxBytes=0` |
 | Receiver | Two `PacketSink` instances | `PORT` | Ports 5001 and 5002 identify the flows |
 | Segment/application send size | 1024 bytes | `PORT` | Treat the paper's 1 KB as payload; verify with PCAP |
@@ -515,8 +505,7 @@ singleton.
 
 ```text
 scratch/catra/catra-phy-range-probe.cc   Phase 1 calibration executable
-scratch/catra/scenario1/                  Scenario-specific executable and adapters
-scratch/catra/scenario1/baseline/         No-CATRA traffic, metrics and Tahoe
+scratch/scenario1/                        Common Scenario 1 simulation and Tahoe
 contrib/catra/model/measurement/          Shared Algorithm 1 measurement
 contrib/catra/model/mac/                  Shared MAC CW' decision
 contrib/catra/model/tcp/                  Shared Algorithm 2 decision
@@ -524,7 +513,7 @@ contrib/catra/model/tcp/                  Shared Algorithm 2 decision
 
 Standalone experiment assembly stays in `scratch`. Reusable flow identity,
 airtime measurement, station state, MAC control, and TCP congestion control
-live in `contrib/catra`; scenario assembly remains under `scratch/catra/scenario1`.
+live in `contrib/catra`; scenario assembly remains under `scratch/scenario1`.
 
 ## Phase 0 completion record
 

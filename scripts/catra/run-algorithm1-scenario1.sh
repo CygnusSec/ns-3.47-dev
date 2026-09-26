@@ -11,10 +11,11 @@ ADJACENT_DISTANCE_SETS="${ADJACENT_DISTANCE_SETS:-200,250 250,200 200,200}"
 SIM_TIME="${SIM_TIME:-300}"
 EP="${EP:-2}"
 RUN="${RUN:-1}"
-# Base scenario mode always installs the two saturated TCP flows.
-MODE="${MODE:-baseline}"
+# Scenario 1 always installs the common TCP Tahoe traffic. CATRA behavior is
+# selected only by the ns-3 module configuration.
+MODE="${MODE:-scenario1}"
 # "paper" reproduces the two TCP flows in Scenario 1. "tcp-stress" adds one
-# saturated CatraTcpTahoe flow R->S1 and includes it in Algorithm 1 flow counts.
+# saturated Scenario1TcpTahoe flow R->S1 and includes it in Algorithm 1 flow counts.
 TRAFFIC_PROFILE="${TRAFFIC_PROFILE:-paper}"
 # CW tracing records every CwTrace and BackoffTrace event. Keep verbose output
 # off for 300 s runs; the complete event sequence is retained in the CSV.
@@ -22,21 +23,21 @@ TRACE_CW="${TRACE_CW:-true}"
 VERBOSE_CW="${VERBOSE_CW:-false}"
 MEASURE_MAC_HOPS="${MEASURE_MAC_HOPS:-true}"
 MAC_HOP_INTERVAL="${MAC_HOP_INTERVAL:-1}"
-OUTPUT_DIR="${OUTPUT_DIR:-results/catra/scenario1/algorithm1}"
+OUTPUT_DIR="${OUTPUT_DIR:-results/scenario1}"
 mkdir -p "${OUTPUT_DIR}"
 
 # Build first, then query the executable itself so the filename provenance
 # always matches the compile definition actually present in that binary.
-./ns3 build catra-scenario1 -j 2
-BUILD_FEATURES="$(./ns3 run 'catra-scenario1 --printBuildFeatures=true' --no-build)"
+./ns3 build scenario1 -j 2
+BUILD_FEATURES="$(./ns3 run 'scenario1 --printBuildFeatures=true' --no-build)"
 if grep -q '^catra_module=enabled$' <<<"${BUILD_FEATURES}"; then
   CATRA_MODULE_STATUS="enabled"
   FILE_PREFIX="catra-${TRAFFIC_PROFILE}-"
 elif grep -q '^catra_module=disabled$' <<<"${BUILD_FEATURES}"; then
   CATRA_MODULE_STATUS="disabled"
-  FILE_PREFIX="baseline-${TRAFFIC_PROFILE}-"
+  FILE_PREFIX="no-catra-${TRAFFIC_PROFILE}-"
 else
-  echo "Cannot determine CATRA compile-time status from catra-scenario1:" >&2
+  echo "Cannot determine CATRA compile-time status from scenario1:" >&2
   echo "${BUILD_FEATURES}" >&2
   exit 1
 fi
@@ -51,7 +52,7 @@ for STATION_COUNT in ${STATIONS}; do
     rm -f "${THROUGHPUT_CSV}" "${STATION_CSV}" "${CW_TRACE_CSV}" "${MAC_HOP_CSV}"
 
     ./ns3 run \
-      "catra-scenario1 --mode=${MODE} --trafficProfile=${TRAFFIC_PROFILE} --n=${STATION_COUNT} --distances=${DISTANCE_SET} --simTime=${SIM_TIME} --ep=${EP} --run=${RUN} --traceCw=${TRACE_CW} --verboseCw=${VERBOSE_CW} --measureMacHops=${MEASURE_MAC_HOPS} --macHopInterval=${MAC_HOP_INTERVAL} --strict=true --printTopology=false --csv=${THROUGHPUT_CSV} --stationCsv=${STATION_CSV} --cwTraceCsv=${CW_TRACE_CSV} --macHopCsv=${MAC_HOP_CSV}" \
+      "scenario1 --mode=${MODE} --trafficProfile=${TRAFFIC_PROFILE} --n=${STATION_COUNT} --distances=${DISTANCE_SET} --simTime=${SIM_TIME} --ep=${EP} --run=${RUN} --traceCw=${TRACE_CW} --verboseCw=${VERBOSE_CW} --measureMacHops=${MEASURE_MAC_HOPS} --macHopInterval=${MAC_HOP_INTERVAL} --strict=true --printTopology=false --csv=${THROUGHPUT_CSV} --stationCsv=${STATION_CSV} --cwTraceCsv=${CW_TRACE_CSV} --macHopCsv=${MAC_HOP_CSV}" \
       --no-build
 
     echo "scenario1_catra_selection=ns3-configure-time"

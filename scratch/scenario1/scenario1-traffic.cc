@@ -2,9 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "scenario1-baseline.h"
-
-#include "../catra/scenario1-contention.h"
+#include "scenario1-traffic.h"
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
@@ -26,7 +24,7 @@ namespace
 constexpr double HOP_TOLERANCE = 1e-9;
 
 std::string
-GetBaselineNodeRole(uint32_t nodeIndex, uint32_t stationCount)
+GetScenario1TrafficNodeRole(uint32_t nodeIndex, uint32_t stationCount)
 {
     if (nodeIndex == 0)
     {
@@ -45,11 +43,11 @@ GetBaselineNodeRole(uint32_t nodeIndex, uint32_t stationCount)
 
 } // namespace
 
-Scenario1BaselineApplications
-InstallScenario1Baseline(const NodeContainer& nodes,
-                         const Ipv4InterfaceContainer& interfaces,
-                         double trafficStartS,
-                         double simulationTimeS)
+Scenario1Applications
+InstallScenario1Traffic(const NodeContainer& nodes,
+                        const Ipv4InterfaceContainer& interfaces,
+                        double trafficStartS,
+                        double simulationTimeS)
 {
     const uint32_t s1Index = nodes.GetN() - 2;
     const uint32_t receiverIndex = nodes.GetN() - 1;
@@ -88,6 +86,39 @@ InstallScenario1Baseline(const NodeContainer& nodes,
             nullptr};
 }
 
+Ptr<PacketSink>
+InstallScenario1TcpStressTraffic(const NodeContainer& nodes,
+                                 const Ipv4InterfaceContainer& interfaces,
+                                 double trafficStartS,
+                                 double simulationTimeS)
+{
+    const uint32_t targetIndex = nodes.GetN() - 2;
+    const uint32_t contenderIndex = nodes.GetN() - 1;
+
+    PacketSinkHelper sink(
+        "ns3::TcpSocketFactory",
+        InetSocketAddress(Ipv4Address::GetAny(), SCENARIO1_TCP_STRESS_PORT));
+    ApplicationContainer sinkApplications = sink.Install(nodes.Get(targetIndex));
+    sinkApplications.Start(Seconds(0.5));
+    sinkApplications.Stop(Seconds(simulationTimeS));
+
+    BulkSendHelper contender(
+        "ns3::TcpSocketFactory",
+        InetSocketAddress(interfaces.GetAddress(targetIndex), SCENARIO1_TCP_STRESS_PORT));
+    contender.SetAttribute("MaxBytes", UintegerValue(0));
+    contender.SetAttribute("SendSize", UintegerValue(SCENARIO1_TCP_PAYLOAD_BYTES));
+    ApplicationContainer sourceApplications = contender.Install(nodes.Get(contenderIndex));
+    sourceApplications.Start(Seconds(trafficStartS + 0.1));
+    sourceApplications.Stop(Seconds(simulationTimeS));
+
+    std::cout << "[TCP-STRESS] enabled=true source_node=" << contenderIndex
+              << " target_node=" << targetIndex << " direction=R->S1 protocol=TCP"
+              << " offered_rate=saturated"
+              << " payload_bytes=" << SCENARIO1_TCP_PAYLOAD_BYTES
+              << " start_s=" << trafficStartS + 0.1 << " stop_s=" << simulationTimeS << "\n";
+    return DynamicCast<PacketSink>(sinkApplications.Get(0));
+}
+
 void
 ObserveScenario1Flow2Forward(std::vector<uint64_t>* forwardedByNode,
                             uint32_t nodeIndex,
@@ -112,11 +143,11 @@ ObserveScenario1Flow2Forward(std::vector<uint64_t>* forwardedByNode,
 
 void
 ObserveScenario1HopRx(std::vector<uint64_t>* flow1RxBytesByNode,
-                     std::vector<uint64_t>* flow2RxBytesByNode,
-                     uint32_t nodeIndex,
-                     Ptr<const Packet> packet,
-                     Ptr<Ipv4>,
-                     uint32_t)
+                      std::vector<uint64_t>* flow2RxBytesByNode,
+                      uint32_t nodeIndex,
+                      Ptr<const Packet> packet,
+                      Ptr<Ipv4>,
+                      uint32_t)
 {
     Ptr<Packet> copy = packet->Copy();
     Ipv4Header ipv4;
@@ -145,24 +176,24 @@ ObserveScenario1HopRx(std::vector<uint64_t>* flow1RxBytesByNode,
 }
 
 bool
-WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
-                              uint32_t stationCount,
-                              uint32_t seed,
-                              uint64_t run,
-                              const std::string& trafficProfile,
-                              bool catraEnabled,
-                              bool measurementEnabled,
-                              const std::string& adjacentDistances,
-                              double trafficStartS,
-                              double simulationTimeS,
-                              double estimationPeriodS,
-                              const std::string& csvPath,
-                              const std::vector<uint64_t>& flow2ForwardedByNode,
-                              const std::vector<uint64_t>& flow1RxBytesByNode,
-                              const std::vector<uint64_t>& flow2RxBytesByNode)
+WriteScenario1Metrics(const Scenario1Applications& applications,
+                      uint32_t stationCount,
+                      uint32_t seed,
+                      uint64_t run,
+                      const std::string& trafficProfile,
+                      bool catraEnabled,
+                      bool measurementEnabled,
+                      const std::string& adjacentDistances,
+                      double trafficStartS,
+                      double simulationTimeS,
+                      double estimationPeriodS,
+                      const std::string& csvPath,
+                      const std::vector<uint64_t>& flow2ForwardedByNode,
+                      const std::vector<uint64_t>& flow1RxBytesByNode,
+                      const std::vector<uint64_t>& flow2RxBytesByNode)
 {
     NS_ABORT_MSG_IF(!applications.flow1Sink || !applications.flow2Sink,
-                    "Baseline PacketSink lookup failed");
+                    "Scenario 1 PacketSink lookup failed");
     const double activeS = simulationTimeS - trafficStartS;
     const uint64_t flow1Bytes = applications.flow1Sink->GetTotalRx();
     const uint64_t flow2Bytes = applications.flow2Sink->GetTotalRx();
@@ -188,7 +219,8 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
     for (uint32_t relay = 1; relay + 1 < stationCount; ++relay)
     {
         flow2ForwardedPackets += flow2ForwardedByNode.at(relay);
-        flow2Path << '>' << GetBaselineNodeRole(relay, stationCount) << "(n" << relay << ')';
+        flow2Path << '>' << GetScenario1TrafficNodeRole(relay, stationCount) << "(n" << relay
+                  << ')';
     }
     flow2Path << ">R(n" << stationCount - 1 << ')';
 
@@ -214,20 +246,20 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
                       << std::setprecision(6) << flow1HopMbps;
 
     std::cout << std::fixed << std::setprecision(6)
-              << "[BASELINE] flow=Flow1 path=S1->R hops=1 rx_bytes=" << flow1Bytes
+              << "[SCENARIO1] flow=Flow1 path=S1->R hops=1 rx_bytes=" << flow1Bytes
               << " goodput_mbps=" << flow1Mbps << "\n"
-              << "[BASELINE] flow=Flow2 path=S2->R hops=" << stationCount - 1
+              << "[SCENARIO1] flow=Flow2 path=S2->R hops=" << stationCount - 1
               << " rx_bytes=" << flow2Bytes << " goodput_mbps=" << flow2Mbps << "\n"
-              << "[BASELINE] flow=Flow2 runtime_path=" << flow2Path.str()
+              << "[SCENARIO1] flow=Flow2 runtime_path=" << flow2Path.str()
               << " relay_nodes=" << stationCount - 2
               << " forwarded_tcp_data_packets=" << flow2ForwardedPackets << "\n"
-              << "[BASELINE] total_e2e_mbps=" << totalE2eMbps
+              << "[SCENARIO1] total_e2e_mbps=" << totalE2eMbps
               << " paper_total_approx_mbps=" << paperTotalApproxMbps
               << " jain=" << jain << " active_s=" << activeS << "\n"
-              << "[BASELINE-IP-HOP-GOODPUT] flow=Flow2 hop_goodput_mbps="
+              << "[SCENARIO1-IP-HOP-GOODPUT] flow=Flow2 hop_goodput_mbps="
               << flow2HopBandwidth.str()
               << "\n"
-              << "[BASELINE-IP-HOP-GOODPUT] flow=Flow1 hop_goodput_mbps="
+              << "[SCENARIO1-IP-HOP-GOODPUT] flow=Flow1 hop_goodput_mbps="
               << flow1HopBandwidth.str()
               << "\n";
     if (applications.tcpStressSink)
@@ -260,14 +292,15 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
                             << csvPath);
     }
     std::ofstream csv(csvPath, std::ios::app);
-    NS_ABORT_MSG_IF(!csv, "Cannot open baseline CSV: " << csvPath);
+    NS_ABORT_MSG_IF(!csv, "Cannot open Scenario 1 CSV: " << csvPath);
     if (writeHeader)
     {
         csv << csvHeader << '\n';
     }
     csv << std::fixed << std::setprecision(6) << trafficProfile << ',' << std::boolalpha
         << catraEnabled << ',' << measurementEnabled << ',' << stationCount << ','
-        << adjacentDistances << ',' << seed << ',' << run << ",CatraTcpTahoe," << simulationTimeS
+        << adjacentDistances << ',' << seed << ',' << run << ",Scenario1TcpTahoe,"
+        << simulationTimeS
         << ',' << estimationPeriodS << ','
         << (applications.tcpStressSink ? "TCP" : "none") << ',' << activeS << ',' << flow1Mbps
         << ',' << flow2Mbps << ',' << tcpStressMbps << ','
@@ -277,17 +310,17 @@ WriteScenario1BaselineMetrics(const Scenario1BaselineApplications& applications,
         << flow1HopBandwidth.str() << ',' << tcpStressBytes << ','
         << (applications.tcpStressSink ? "R>S1" : "none") << ','
         << (applications.tcpStressSink ? 1 : 0) << '\n';
-    std::cout << "baseline_csv=" << csvPath << "\n";
+    std::cout << "scenario1_csv=" << csvPath << "\n";
     std::cout << std::defaultfloat << std::setprecision(6);
     return flow1Bytes > 0 && flow2Bytes > 0;
 }
 
 bool
-ValidateScenario1Baseline(Ptr<FlowMonitor> monitor,
-                          Ptr<Ipv4FlowClassifier> classifier,
-                          uint32_t stationCount,
-                          bool tcpStressEnabled,
-                          const std::vector<uint64_t>& flow2ForwardedByNode)
+ValidateScenario1Traffic(Ptr<FlowMonitor> monitor,
+                         Ptr<Ipv4FlowClassifier> classifier,
+                         uint32_t stationCount,
+                         bool tcpStressEnabled,
+                         const std::vector<uint64_t>& flow2ForwardedByNode)
 {
     struct ExpectedFlow
     {
@@ -323,7 +356,7 @@ ValidateScenario1Baseline(Ptr<FlowMonitor> monitor,
                                             : 1.0 + 1.0 * stats.timesForwarded / stats.rxPackets;
             const bool delivered = stats.rxPackets > 0 && stats.rxBytes > 0;
             const bool hopsPassed = std::abs(observedHops - flow.expectedHops) <= HOP_TOLERANCE;
-            std::cout << "[BASELINE-FLOWMONITOR] flow=" << flow.name
+            std::cout << "[SCENARIO1-FLOWMONITOR] flow=" << flow.name
                       << " src=" << tuple.sourceAddress << " dst=" << tuple.destinationAddress
                       << " tx_packets=" << stats.txPackets << " rx_packets=" << stats.rxPackets
                       << " lost_packets=" << stats.lostPackets
@@ -341,28 +374,28 @@ ValidateScenario1Baseline(Ptr<FlowMonitor> monitor,
     for (uint32_t relay = 1; relay + 1 < stationCount; ++relay)
     {
         observedRelayForwards += flow2ForwardedByNode.at(relay);
-        path << "->" << GetBaselineNodeRole(relay, stationCount) << "(n" << relay << ')';
+        path << "->" << GetScenario1TrafficNodeRole(relay, stationCount) << "(n" << relay << ')';
         const bool relayPassed = flow2ForwardedByNode.at(relay) > 0;
-        std::cout << "[BASELINE-FORWARD] flow=Flow2 relay_node=" << relay
-                  << " role=" << GetBaselineNodeRole(relay, stationCount)
+        std::cout << "[SCENARIO1-FORWARD] flow=Flow2 relay_node=" << relay
+                  << " role=" << GetScenario1TrafficNodeRole(relay, stationCount)
                   << " forwarded_tcp_data_packets=" << flow2ForwardedByNode.at(relay)
                   << " result=" << (relayPassed ? "PASS" : "FAIL") << "\n";
         passed = passed && relayPassed;
     }
     path << "->R(n" << stationCount - 1 << ')';
-    std::cout << "[BASELINE-PATH] flow=Flow2 path=" << path.str()
+    std::cout << "[SCENARIO1-PATH] flow=Flow2 path=" << path.str()
               << " relay_nodes=" << stationCount - 2
               << " observed_relay_forwards=" << observedRelayForwards << "\n";
     for (const auto& flow : expected)
     {
         if (!flow.found)
         {
-            std::cout << "[BASELINE-FLOWMONITOR] flow=" << flow.name
+            std::cout << "[SCENARIO1-FLOWMONITOR] flow=" << flow.name
                       << " result=FAIL reason=not-found\n";
             passed = false;
         }
     }
-    std::cout << "baseline_flowmonitor_overall=" << (passed ? "PASS" : "FAIL") << "\n";
+    std::cout << "scenario1_flowmonitor_overall=" << (passed ? "PASS" : "FAIL") << "\n";
     return passed;
 }
 

@@ -9,4 +9,6 @@
 !tcp-congestion-standard.cc
 !catra/
 !catra/**
+!scenario1/
+!scenario1/**
 !CMakeLists.txt

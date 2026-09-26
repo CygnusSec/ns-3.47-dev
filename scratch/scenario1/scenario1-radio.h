@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#ifndef SCENARIO1_CATRA_H
-#define SCENARIO1_CATRA_H
+#ifndef SCENARIO1_RADIO_H
+#define SCENARIO1_RADIO_H
 
 #include <cstdint>
 #include <string>
@@ -50,4 +50,4 @@ std::vector<Scenario1StationFlowCounts> CalculateScenario1StationFlowCounts(
 
 } // namespace ns3
 
-#endif // SCENARIO1_CATRA_H
+#endif // SCENARIO1_RADIO_H

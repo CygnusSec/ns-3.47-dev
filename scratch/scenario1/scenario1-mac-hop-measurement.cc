@@ -4,8 +4,7 @@
 
 #include "scenario1-mac-hop-measurement.h"
 
-#include "scenario1-baseline.h"
-#include "../catra/scenario1-contention.h"
+#include "scenario1-traffic.h"
 
 #include "ns3/abort.h"
 #include "ns3/ipv4-header.h"

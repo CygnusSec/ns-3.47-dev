@@ -2,14 +2,10 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#ifndef SCENARIO1_CONTENTION_H
-#define SCENARIO1_CONTENTION_H
+#ifndef SCENARIO1_CW_TRACE_H
+#define SCENARIO1_CW_TRACE_H
 
-#include "ns3/application-container.h"
-#include "ns3/internet-module.h"
-#include "ns3/network-module.h"
 #include "ns3/nstime.h"
-#include "ns3/packet-sink.h"
 #include "ns3/txop.h"
 
 #include <cstdint>
@@ -65,15 +61,6 @@ void ObserveScenario1Backoff(Scenario1CwTraceLogger* logger,
                              uint32_t selectedSlots,
                              uint8_t linkId);
 
-/** Add a saturated TCP sender at R targeting its adjacent station S1. */
-Ptr<PacketSink> InstallScenario1TcpStressTraffic(
-    const NodeContainer& nodes,
-    const Ipv4InterfaceContainer& interfaces,
-    double trafficStartS,
-    double simulationTimeS);
-
-constexpr uint16_t SCENARIO1_TCP_STRESS_PORT = 9100;
-
 } // namespace ns3
 
-#endif // SCENARIO1_CONTENTION_H
+#endif // SCENARIO1_CW_TRACE_H

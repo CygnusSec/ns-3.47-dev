@@ -1,5 +1,10 @@
 # CATRA Scenario 1 — Kế hoạch thực hiện từng bước trên ns-3.47
 
+> Cập nhật kiến trúc: `scratch/scenario1/` chứa một executable Scenario 1 và
+> một TCP Tahoe dùng chung. CATRA chỉ được chọn bằng cấu hình module
+> `contrib/catra`. Các tên `baseline` và `measure-only` bên dưới là nhãn của
+> các giai đoạn kiểm chứng cũ, không còn là folder hoặc runtime mode hiện tại.
+
 ## 1. Mục tiêu và phạm vi
 
 Tài liệu này chuyển kế hoạch nghiên cứu tổng quát thành thứ tự triển khai cụ thể
@@ -39,7 +44,7 @@ và Jain fairness index.
   choices và acceptance gates.
 - `scratch/catra/catra-phy-range-probe.cc` đã định nghĩa phép kiểm tra quan hệ
   decode/CCA tại 200, 250, 400, 550 và 600 m.
-- `scratch/catra/scenario1/scenario1-main.cc` đã dựng chain topology `n=3..6`, calibrated
+- `scratch/scenario1/scenario1-main.cc` đã dựng chain topology `n=3..6`, calibrated
   802.11b PHY, địa chỉ IPv4 và kiểm tra invariant Phase 2.
 - `scratch/catra/active-time-estimation/` đã có implementation đọc-only của
   Algorithm 1, gồm packet parser, MAC observer, transaction tracker và
@@ -65,7 +70,7 @@ và Jain fairness index.
 
 ### 2.4. Ranh giới quan trọng
 
-- Paper dùng TCP Tahoe. Checkout hiện tại cung cấp `CatraTcpTahoe`: Reno
+- Paper dùng TCP Tahoe. Checkout hiện tại cung cấp `Scenario1TcpTahoe`: Reno
   slow-start/congestion-avoidance kết hợp Tahoe one-MSS loss recovery và tắt
   SACK. Đây là ns-3 port, không phải implementation NS-2 gốc của tác giả.
 - Algorithm 1 hiện chỉ đo active time và `RBRs`; không được suy ra rằng flow
@@ -140,7 +145,7 @@ rộng Scenario 1.
 
 1. Build ba target hiện có.
 2. Chạy strict PHY range probe.
-3. Chạy `catra-scenario1` với `n=3,4,5,6`.
+3. Chạy `scenario1` với `n=3,4,5,6`.
 4. Chạy strict active-time probe.
 5. Lưu command và kết quả PASS vào README hoặc test log.
 
@@ -148,13 +153,13 @@ rộng Scenario 1.
 
 ```bash
 docker compose exec -T ns3 ./ns3 build \
-  catra-phy-range-probe catra-scenario1 catra-active-time-probe -j 2
+  catra-phy-range-probe scenario1 catra-active-time-probe -j 2
 
 docker compose exec -T ns3 ./ns3 run catra-phy-range-probe --no-build
 
 for n in 3 4 5 6; do
   docker compose exec -T ns3 ./ns3 run \
-    "catra-scenario1 --n=${n} --strict=true --printTopology=false" --no-build
+    "scenario1 --n=${n} --strict=true --printTopology=false" --no-build
 done
 
 docker compose exec -T ns3 ./ns3 run catra-active-time-probe --no-build
@@ -198,7 +203,7 @@ scratch/catra/NS3_SOURCE_MAPPING.md
 1. Map CW update/reset/backoff generation trong `src/wifi/model`.
 2. Xác nhận CW values của ns-3 là inclusive slot range kiểu `2^k-1` hay cách
    biểu diễn khác; ghi mapping paper `32/1024` thành quyết định riêng.
-3. Map `CatraTcpTahoe` growth, one-MSS loss recovery and RTO paths.
+3. Map `Scenario1TcpTahoe` growth, one-MSS loss recovery and RTO paths.
 4. Xác định hook tối thiểu để CATRA TCP thay đổi `cwnd` và delay mà không phá
    recovery state machine.
 5. Ghi rõ API nào chỉ dùng quan sát và API nào dự kiến dùng điều khiển.
@@ -217,7 +222,7 @@ thêm TCP.
 
 ### Thay đổi dự kiến
 
-- Tách helper topology/routing khỏi `catra-scenario1.cc` nếu file bắt đầu quá
+- Tách helper topology/routing khỏi `scenario1-main.cc` nếu file bắt đầu quá
   lớn; chưa cần chuyển vào `contrib/`.
 - Thêm `/32` host route hướng tới `R` trên từng station.
 - Thêm reverse `/32` host route từ `R` và relay về từng source.
@@ -258,7 +263,7 @@ SendSize/segment target: 1024 bytes
 Traffic start: 1 s
 Simulation stop: 300 s
 Active measurement duration: 299 s
-TCP: CatraTcpTahoe port, SACK disabled, cwnd returns to 1 MSS on loss
+TCP: Scenario1TcpTahoe port, SACK disabled, cwnd returns to 1 MSS on loss
 ```
 
 ### Instrumentation tối thiểu
@@ -675,7 +680,7 @@ scripts/catra/plot-scenario1-fig4.py
 - Total E2E và hop-weighted throughput với label không nhập nhằng.
 - Jain fairness.
 - Error bars khi có nhiều run.
-- Ghi rõ `CatraTcpTahoe PORT`, không nhận là implementation NS-2 gốc.
+- Ghi rõ `Scenario1TcpTahoe PORT`, không nhận là implementation NS-2 gốc.
 
 ## Step 15 — Documentation và Definition of Done
 
@@ -713,13 +718,16 @@ Chỉ tách file khi responsibility đã ổn định. Thứ tự đề xuất:
 
 ```text
 scratch/catra/
-├── scenario1/scenario1-main.cc          # CLI + orchestration
-├── scenario1/baseline/                  # CATRA disabled
-│   ├── scenario1-baseline.cc/.h         # traffic, forwarding, metrics
-│   └── tcp-tahoe.cc/.h
-├── scenario1/catra/scenario1-catra.cc/.h # Scenario 1 flow counts/FBR adapter
 ├── active-time-estimation/catra-active-time-probe.cc
 └── tcp_rate_adaptation/catra-tcp-controller-probe.cc
+
+scratch/scenario1/                        # one common simulation
+├── scenario1-main.cc                    # CLI + orchestration
+├── scenario1-traffic.cc/.h              # traffic, forwarding, metrics
+├── scenario1-radio.cc/.h                # radio relationship + flow counts
+├── scenario1-cw-trace.cc/.h             # DCF/BEB/CATRA event provenance
+├── scenario1-mac-hop-measurement.cc/.h
+└── tcp-tahoe.cc/.h                      # common Tahoe-compatible TCP
 
 contrib/catra/model/
 ├── measurement/                         # shared Algorithm 1 implementation
@@ -728,7 +736,7 @@ contrib/catra/model/
 ```
 
 Reusable measurement/controller code đã chuyển sang `contrib/catra`; executable
-assembly và mapping riêng của Scenario 1 vẫn nằm trong `scratch/catra/scenario1`.
+assembly và mapping riêng của Scenario 1 vẫn nằm trong `scratch/scenario1`.
 
 ## 6. Kế hoạch commit
 

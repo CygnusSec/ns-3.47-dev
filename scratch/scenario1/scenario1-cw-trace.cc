@@ -2,9 +2,8 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "scenario1-contention.h"
+#include "scenario1-cw-trace.h"
 
-#include "ns3/applications-module.h"
 #include "ns3/core-module.h"
 
 #include <algorithm>
@@ -14,14 +13,6 @@
 
 namespace ns3
 {
-namespace
-{
-
-constexpr uint16_t CONTENTION_PORT = SCENARIO1_TCP_STRESS_PORT;
-constexpr uint32_t CONTENTION_PACKET_BYTES = 1024;
-
-} // namespace
-
 Scenario1CwTraceLogger::Scenario1CwTraceLogger(const std::string& csvPath,
                                                uint32_t stationCount,
                                                bool verbose)
@@ -162,37 +153,6 @@ ObserveScenario1Backoff(Scenario1CwTraceLogger* logger,
                         uint8_t linkId)
 {
     logger->ObserveBackoff(nodeIndex, txop, slotTime, selectedSlots, linkId);
-}
-
-Ptr<PacketSink>
-InstallScenario1TcpStressTraffic(const NodeContainer& nodes,
-                                 const Ipv4InterfaceContainer& interfaces,
-                                 double trafficStartS,
-                                 double simulationTimeS)
-{
-    const uint32_t targetIndex = nodes.GetN() - 2;
-    const uint32_t contenderIndex = nodes.GetN() - 1;
-
-    PacketSinkHelper sink("ns3::TcpSocketFactory",
-                          InetSocketAddress(Ipv4Address::GetAny(), CONTENTION_PORT));
-    ApplicationContainer sinkApplications = sink.Install(nodes.Get(targetIndex));
-    sinkApplications.Start(Seconds(0.5));
-    sinkApplications.Stop(Seconds(simulationTimeS));
-
-    BulkSendHelper contender("ns3::TcpSocketFactory",
-                             InetSocketAddress(interfaces.GetAddress(targetIndex), CONTENTION_PORT));
-    contender.SetAttribute("MaxBytes", UintegerValue(0));
-    contender.SetAttribute("SendSize", UintegerValue(CONTENTION_PACKET_BYTES));
-    ApplicationContainer sourceApplications = contender.Install(nodes.Get(contenderIndex));
-    sourceApplications.Start(Seconds(trafficStartS + 0.1));
-    sourceApplications.Stop(Seconds(simulationTimeS));
-
-    std::cout << "[CONTENTION-LOAD] enabled=true source_node=" << contenderIndex
-              << " target_node=" << targetIndex << " direction=R->S1 protocol=TCP"
-              << " offered_rate=saturated"
-              << " packet_bytes=" << CONTENTION_PACKET_BYTES
-              << " start_s=" << trafficStartS + 0.1 << " stop_s=" << simulationTimeS << "\n";
-    return DynamicCast<PacketSink>(sinkApplications.Get(0));
 }
 
 } // namespace ns3

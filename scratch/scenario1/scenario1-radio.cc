@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#include "scenario1-catra.h"
+#include "scenario1-radio.h"
 
 #include "ns3/abort.h"
 

@@ -23,7 +23,7 @@ def parse_args():
     )
     parser.add_argument("csv_file")
     parser.add_argument("--traffic-profile", default="paper")
-    parser.add_argument("--tcp", default="CatraTcpTahoe")
+    parser.add_argument("--tcp", default="Scenario1TcpTahoe")
     parser.add_argument("--width", type=int, default=120)
     parser.add_argument("--height", type=int, default=32)
     return parser.parse_args()

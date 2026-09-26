@@ -2,8 +2,8 @@
 
 This ns-3 module contains CATRA logic that is independent of a concrete
 scenario. A scenario opts in by linking `${libcatra}` and creating the required
-measurement/controller objects. Scenario 1 itself remains available as a TCP
-Tahoe baseline when this module is disabled.
+measurement/controller objects. The common Scenario 1 simulation remains
+available with exactly the same TCP Tahoe traffic when this module is disabled.
 
 ## Ownership
 
@@ -14,7 +14,7 @@ model/tcp/          Algorithm 2 side-effect-free TCP cwnd/delay decision
 ```
 
 Scenario-specific topology, route-derived flow counts, applications and output
-remain under `scratch/catra/scenario1`.
+remain under `scratch/scenario1`.
 
 ## Current integration boundary
 
@@ -39,7 +39,7 @@ Scenario 1:
 
 ```bash
 ./ns3 configure --enable-modules= --disable-modules=
-./ns3 build catra-scenario1
+./ns3 build scenario1
 ```
 
 An empty `--enable-modules` list means that ns-3 does not apply an enable
@@ -60,15 +60,15 @@ Disable CATRA with:
 
 ```bash
 ./ns3 configure --enable-modules= --disable-modules=catra
-./ns3 build catra-scenario1
+./ns3 build scenario1
 ```
 
 The enable and disable commands explicitly clear the opposite cached module
 list. This matters when switching an existing CMake build directory between
 enabled and disabled states.
 
-The `catra-scenario1` executable is registered in both configurations. Without
-the module it reports `catra_module=disabled`, runs the baseline TCP traffic,
+The `scenario1` executable is registered in both configurations. Without the
+module it reports `catra_module=disabled`, runs the common TCP traffic,
 and still produces throughput, CW/backoff and per-hop MAC output; it does not
 create the CATRA station-state CSV. With the module it reports
 `catra_module=enabled` and automatically adds Algorithm 1 plus CW control.
@@ -85,12 +85,12 @@ ADJACENT_DISTANCE_SETS="100,200" \
 
 After building, the runner asks the Scenario 1 executable to report its
 compile-time features. CATRA-enabled output files use the `catra-` prefix;
-CATRA-disabled baseline files use `baseline-`. The feature query cannot enable
+CATRA-disabled files use `no-catra-`. The feature query cannot enable
 or disable CATRA; it only prevents filenames from disagreeing with the binary
 that is about to run.
 
 Scenario 1 uses `--trafficProfile=paper` for the paper's two TCP flows. The
-separate `--trafficProfile=tcp-stress` profile adds a saturated CatraTcpTahoe
+separate `--trafficProfile=tcp-stress` profile adds a saturated Scenario1TcpTahoe
 flow from R to S1 and includes it in the Algorithm 1 flow counts. This stress
 flow is experiment traffic rather than part of the paper scenario.
 `--traceCw=true` records the native ns-3 `CwTrace` and

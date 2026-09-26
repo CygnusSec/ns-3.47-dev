@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 
-#ifndef CATRA_TCP_TAHOE_H
-#define CATRA_TCP_TAHOE_H
+#ifndef SCENARIO1_TCP_TAHOE_H
+#define SCENARIO1_TCP_TAHOE_H
 
 #include "ns3/tcp-congestion-ops.h"
 #include "ns3/tcp-recovery-ops.h"
@@ -14,30 +14,30 @@ namespace ns3
 /**
  * Tahoe congestion avoidance uses the same slow-start and additive-increase
  * rules as Reno. Its distinguishing behavior is supplied by
- * CatraTcpTahoeRecovery below.
+ * Scenario1TcpTahoeRecovery below.
  */
-class CatraTcpTahoe : public TcpNewReno
+class Scenario1TcpTahoe : public TcpNewReno
 {
   public:
     static TypeId GetTypeId();
 
-    CatraTcpTahoe();
-    CatraTcpTahoe(const CatraTcpTahoe& other);
-    ~CatraTcpTahoe() override;
+    Scenario1TcpTahoe();
+    Scenario1TcpTahoe(const Scenario1TcpTahoe& other);
+    ~Scenario1TcpTahoe() override;
 
     std::string GetName() const override;
     Ptr<TcpCongestionOps> Fork() override;
 };
 
 /** Tahoe loss response: return to one MSS instead of Reno fast recovery. */
-class CatraTcpTahoeRecovery : public TcpRecoveryOps
+class Scenario1TcpTahoeRecovery : public TcpRecoveryOps
 {
   public:
     static TypeId GetTypeId();
 
-    CatraTcpTahoeRecovery();
-    CatraTcpTahoeRecovery(const CatraTcpTahoeRecovery& other);
-    ~CatraTcpTahoeRecovery() override;
+    Scenario1TcpTahoeRecovery();
+    Scenario1TcpTahoeRecovery(const Scenario1TcpTahoeRecovery& other);
+    ~Scenario1TcpTahoeRecovery() override;
 
     std::string GetName() const override;
     void EnterRecovery(Ptr<TcpSocketState> tcb,
@@ -53,4 +53,4 @@ class CatraTcpTahoeRecovery : public TcpRecoveryOps
 
 } // namespace ns3
 
-#endif // CATRA_TCP_TAHOE_H
+#endif // SCENARIO1_TCP_TAHOE_H
